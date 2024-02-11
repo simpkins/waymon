@@ -4,19 +4,62 @@ use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 use gtk::{glib, Orientation, Window};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::rc::Rc;
+use std::time::Instant;
 
 pub struct Waymon {
     config_dir: PathBuf,
     config: Config,
     timeout_id: Option<glib::source::SourceId>,
     window: Option<gtk::Window>,
+    last_update: Instant,
 }
 
-fn on_tick() -> glib::ControlFlow {
-    println!("tick!");
-    glib::ControlFlow::Continue
+pub struct WaymonState {
+    cell: Rc<RefCell<Waymon>>,
+}
+
+impl WaymonState {
+    pub fn new(config_dir: &Path) -> Result<WaymonState> {
+        let waymon = Waymon::new(&config_dir)?;
+        Ok(WaymonState {
+            cell: Rc::new(RefCell::new(waymon)),
+        })
+    }
+
+    pub fn start(&self) {
+        let mut waymon = self.cell.borrow_mut();
+        waymon.create_window();
+
+        assert_eq!(waymon.timeout_id, None);
+        let new_ref = self.cell.clone();
+        waymon.timeout_id = Some(glib::timeout_add_local(waymon.config.interval, move || {
+            Self::on_tick(&new_ref)
+        }));
+    }
+
+    fn on_tick(waymon_cell: &Rc<RefCell<Waymon>>) -> glib::ControlFlow {
+        let mut waymon = waymon_cell.borrow_mut();
+
+        let old_interval = waymon.config.interval;
+        waymon.on_tick();
+        let new_interval = waymon.config.interval;
+        if new_interval != old_interval {
+            eprintln!(
+                "update interval from {:?} to {:?}",
+                old_interval, new_interval
+            );
+            let new_ref = waymon_cell.clone();
+            waymon.timeout_id = Some(glib::timeout_add_local(new_interval, move || {
+                Self::on_tick(&new_ref)
+            }));
+            return glib::ControlFlow::Break;
+        }
+
+        glib::ControlFlow::Continue
+    }
 }
 
 impl Waymon {
@@ -26,17 +69,9 @@ impl Waymon {
             config: Config::load(&config_dir.join("config.toml"))?,
             timeout_id: None,
             window: None,
+            last_update: Instant::now(),
         };
         Ok(waymon)
-    }
-
-    pub fn start(&mut self) {
-        assert_eq!(self.timeout_id, None);
-        self.timeout_id = Some(glib::timeout_add(self.interval(), on_tick));
-    }
-
-    pub fn interval(&self) -> Duration {
-        self.config.interval
     }
 
     pub fn css_path(&self) -> PathBuf {
@@ -120,6 +155,13 @@ impl Waymon {
         label.set_hexpand(true);
         label.set_ellipsize(EllipsizeMode::End);
         container.append(&label);
+    }
+
+    fn on_tick(&mut self) {
+        let now = Instant::now();
+        let delta = now - self.last_update;
+        self.last_update = now;
+        println!("tick!: {:?}", delta);
     }
 }
 

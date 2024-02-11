@@ -25,7 +25,7 @@ fn main() -> anyhow::Result<()> {
         return Err(anyhow!("unable to determine config directory"));
     };
 
-    let mut waymon = match waymon::Waymon::new(&config_dir) {
+    let waymon = match waymon::WaymonState::new(&config_dir) {
         Ok(waymon) => waymon,
         Err(err) => {
             eprintln!("initialization error: {:#}", err);
@@ -37,7 +37,6 @@ fn main() -> anyhow::Result<()> {
     // gtk::Application.  I don't really want the gtk Application's handling of application
     // uniqueness or it's command line argument parsing an file open semantics.
     gtk::init()?;
-    waymon.create_window();
     waymon.start();
     let main_loop = glib::MainLoop::new(None, false);
     main_loop.run();
