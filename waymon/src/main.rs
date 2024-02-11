@@ -7,6 +7,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 mod waymon;
+mod config;
 
 #[derive(Debug, Parser)]
 #[command(about = "System monitor for wayland")]
@@ -93,7 +94,7 @@ fn init_window(waymon: &mut waymon::Waymon) {
 
     waymon.add_widgets(&box_widget);
 
-    // waymon->update();
+    waymon.start();
     glib::timeout_add(waymon.interval(), on_tick);
 
     // Present window
