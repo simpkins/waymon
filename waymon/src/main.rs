@@ -1,13 +1,12 @@
+use anyhow::anyhow;
 use clap::{Parser, ValueHint};
 use gtk::prelude::*;
-use gtk::{glib, Application, ApplicationWindow, Orientation};
+use gtk::{glib, Orientation, Window};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 mod waymon;
-
-const APP_ID: &str = "com.github.simpkins.waymon.waymon";
 
 #[derive(Debug, Parser)]
 #[command(about = "System monitor for wayland")]
@@ -16,7 +15,7 @@ struct Opt {
     config_dir: Option<OsString>,
 }
 
-fn main() -> glib::ExitCode {
+fn main() -> anyhow::Result<()> {
     let opts = Opt::parse();
     let config_dir = if let Some(x) = &opts.config_dir {
         PathBuf::from(x)
@@ -24,22 +23,25 @@ fn main() -> glib::ExitCode {
         x.join("waymon")
     } else {
         eprintln!("unable to determine config directory");
-        return glib::ExitCode::FAILURE;
+        return Err(anyhow!("unable to determine config directory"));
     };
 
-    let waymon = match waymon::Waymon::new(&config_dir) {
+    let mut waymon = match waymon::Waymon::new(&config_dir) {
         Ok(waymon) => waymon,
         Err(err) => {
             eprintln!("initialization error: {:#}", err);
-            return glib::ExitCode::FAILURE;
+            return Err(anyhow!("initialization error: {:#}", err));
         }
     };
 
-    let app = Application::builder().application_id(APP_ID).build();
-    app.connect_activate(move |app| {
-        activate(app, &waymon);
-    });
-    app.run()
+    // I'm manually calling gtk::init and driving the glib main loop here, rather than using
+    // gtk::Application.  I don't really want the gtk Application's handling of application
+    // uniqueness or it's command line argument parsing an file open semantics.
+    gtk::init()?;
+    init_window(&mut waymon);
+    let main_loop = glib::MainLoop::new(None, false);
+    main_loop.run();
+    Ok(())
 }
 
 fn report_css_parsing_error(
@@ -55,12 +57,10 @@ fn on_tick() -> glib::ControlFlow {
     glib::ControlFlow::Continue
 }
 
-fn activate(app: &Application, waymon: &waymon::Waymon) {
+fn init_window(waymon: &mut waymon::Waymon) {
     // Create a window and set the title
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .title("waymon")
-        .build();
+    let window = Window::new();
+    window.set_title(Some("waymon"));
 
     // Configure the window as a layer surface
     window.init_layer_shell();
