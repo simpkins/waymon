@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 mod waymon;
 mod config;
+mod read;
 
 #[derive(Debug, Parser)]
 #[command(about = "System monitor for wayland")]

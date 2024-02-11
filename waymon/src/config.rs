@@ -1,6 +1,5 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Deserializer};
-use std::io::Read;
 use std::path::Path;
 use std::time::Duration;
 
@@ -19,7 +18,7 @@ impl Config {
     }
 
     pub fn load(path: &Path) -> Result<Config> {
-        let config_contents = read_file_size_limited(path)?;
+        let config_contents = read_config_contents(path)?;
         let config_toml: ConfigToml =
             toml::from_str(&config_contents).with_context(|| format!("{}", path.display()))?;
         let mut cfg = Self::new();
@@ -140,28 +139,16 @@ where
     Ok(Some(parse_duration(deser)?))
 }
 
-fn read_file_size_limited(path: &Path) -> Result<String> {
-    match std::fs::File::open(&path) {
-        Ok(f) => {
-            let mut buffer = String::new();
-            // Limit the read size, to avoid using an excessive amount of memory if the
-            // file is huge for some reason.
-            const MAX_CONFIG_FILE_SIZE: u64 = 50 * 1024 * 1024;
-            let mut handle = f.take(MAX_CONFIG_FILE_SIZE);
-            handle.read_to_string(&mut buffer)?;
-
-            // If we read exactly MAX_CONFIG_FILE_SIZE, the config file may have been larger
-            // and we read only truncated data.
-            if buffer.len() == MAX_CONFIG_FILE_SIZE as usize {
-                return Err(anyhow!("config file is too large"));
-            }
-
-            Ok(buffer)
-        }
+fn read_config_contents(path: &Path) -> Result<String> {
+    const MAX_CONFIG_FILE_SIZE: u64 = 50 * 1024 * 1024;
+    match crate::read::read_to_string_with_limit(path, MAX_CONFIG_FILE_SIZE) {
+        Ok(buffer) => Ok(buffer),
         Err(err) => {
             if err.kind() == std::io::ErrorKind::NotFound {
                 // If the config file does not exist, treat it like an empty file
                 Ok("".to_string())
+            } else if err.kind() == std::io::ErrorKind::InvalidData {
+                return Err(anyhow!("config file {} is too large", path.display()));
             } else {
                 return Err(err.into());
             }
