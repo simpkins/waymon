@@ -4,4 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+gtk4-layer-shell = "0.2.0"
 gtk = { version = "0.7", package = "gtk4", features = ["v4_6"] }
+clap = { version = "4.5.0", features = ["derive"] }
+dirs = "5.0.1"
+serde = { version = "1.0.196", features = ["derive"] }
+anyhow = "1.0.79"
+toml = "0.8.10"
