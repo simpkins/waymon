@@ -4,9 +4,10 @@ use gtk::glib;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-mod waymon;
+mod collectors;
 mod config;
 mod read;
+mod waymon;
 
 #[derive(Debug, Parser)]
 #[command(about = "System monitor for wayland")]

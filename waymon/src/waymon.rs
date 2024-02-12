@@ -1,3 +1,4 @@
+use crate::collectors::procstat::ProcStat;
 use crate::config::{Config, CpuWidgetConfig, DiskIOWidgetConfig, WidgetConfig};
 use anyhow::Result;
 use gtk::pango::EllipsizeMode;
@@ -32,6 +33,8 @@ impl WaymonState {
     pub fn start(&self) {
         let mut waymon = self.cell.borrow_mut();
         waymon.create_window();
+        self.last_update = Instant::now();
+        waymon.update_stats();
 
         assert_eq!(waymon.timeout_id, None);
         let new_ref = self.cell.clone();
@@ -162,6 +165,11 @@ impl Waymon {
         let delta = now - self.last_update;
         self.last_update = now;
         println!("tick!: {:?}", delta);
+        self.update_stats()
+    }
+
+    fn update_stats(&mut self) {
+        let _ = ProcStat::read();
     }
 }
 
