@@ -44,11 +44,11 @@ pub enum WidgetConfig {
 pub struct CpuWidgetConfig {
     pub label: String,
 
-    #[serde(default = "default_cpu_height")]
+    #[serde(default = "default_cpu_chart_height")]
     pub height: u32,
 }
 
-fn default_cpu_height() -> u32 {
+fn default_cpu_chart_height() -> u32 {
     100
 }
 
@@ -56,6 +56,13 @@ fn default_cpu_height() -> u32 {
 pub struct DiskIoWidgetConfig {
     pub label: String,
     pub disk: String,
+
+    #[serde(default = "default_disk_io_chart_height")]
+    pub height: u32,
+}
+
+fn default_disk_io_chart_height() -> u32 {
+    100
 }
 
 fn parse_duration<'de, D>(deser: D) -> Result<Duration, D::Error>

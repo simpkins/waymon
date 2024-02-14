@@ -7,8 +7,9 @@ use std::path::PathBuf;
 mod collectors;
 mod config;
 mod read;
-mod widgets;
+mod stats;
 mod waymon;
+mod widgets;
 
 #[derive(Debug, Parser)]
 #[command(about = "System monitor for wayland")]

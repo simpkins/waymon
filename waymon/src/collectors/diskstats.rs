@@ -18,34 +18,34 @@ pub enum ParseError {
     MissingField,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DiskStats {
-    num_reads: u64,        // number of reads completed successfully
-    num_reads_merged: u64, // number of reads operations merged
-    num_sectors_read: u64,
+    pub num_reads: u64,        // number of reads completed successfully
+    pub num_reads_merged: u64, // number of reads operations merged
+    pub num_sectors_read: u64,
 
-    num_writes: u64,        // number of writes completed successfully
-    num_writes_merged: u64, // number of write operations merged
-    num_sectors_written: u64,
+    pub num_writes: u64,        // number of writes completed successfully
+    pub num_writes_merged: u64, // number of write operations merged
+    pub num_sectors_written: u64,
 
-    num_discards: u64,
-    num_discards_merged: u64,
-    num_sectors_discarded: u64,
+    pub num_discards: u64,
+    pub num_discards_merged: u64,
+    pub num_sectors_discarded: u64,
 
-    num_flushes: u64,
+    pub num_flushes: u64,
 
     // The following fields are documented as unsigned int in the Linux kernel.
     // In practice this corresponds to u32 on most platforms we care about.
     // (We perhaps could store them as u64 anyway, at the minor expense of using more memory than
     // needed.)
     //
-    ms_reading: u32,       // number of milliseconds spent reading
-    ms_writing: u32,       // number of milliseconds spent writing
-    iops_in_progress: u32, // number of I/O operations in progress
-    ms_doing_io: u32,      // number of milliseconds spent doing I/O
-    weighted_ms_doing_io: u32,
-    ms_discarding: u32, // number of milliseconds spent doing discards
-    ms_flushing: u32,   // number of milliseconds spent doing discards
+    pub ms_reading: u32,       // number of milliseconds spent reading
+    pub ms_writing: u32,       // number of milliseconds spent writing
+    pub iops_in_progress: u32, // number of I/O operations in progress
+    pub ms_doing_io: u32,      // number of milliseconds spent doing I/O
+    pub weighted_ms_doing_io: u32,
+    pub ms_discarding: u32, // number of milliseconds spent doing discards
+    pub ms_flushing: u32,   // number of milliseconds spent doing discards
 }
 
 impl DiskStats {
@@ -144,9 +144,9 @@ impl DiskStats {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProcDiskStats {
-    disks: HashMap<String, DiskStats>,
+    pub disks: HashMap<String, DiskStats>,
 }
 
 impl ProcDiskStats {
@@ -186,6 +186,23 @@ impl ProcDiskStats {
         let (name, line) = line.split_once(' ').ok_or(ParseError::MissingField)?;
 
         self.disks.insert(name.to_string(), DiskStats::parse(line)?);
+        Ok(())
+    }
+}
+
+impl crate::stats::StatType for ProcDiskStats {
+    fn name() -> &'static str {
+        PATH
+    }
+
+    fn new_zero() -> Self {
+        Self {
+            disks: HashMap::new(),
+        }
+    }
+
+    fn update(&mut self) -> Result<(), crate::stats::StatsError> {
+        *self = Self::read()?;
         Ok(())
     }
 }

@@ -17,21 +17,45 @@ pub enum ParseError {
     MissingCpuField,
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Ticks(u64);
 
-#[derive(Debug)]
+impl std::ops::Add for Ticks {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self::Output {
+        Self(self.0 + other.0)
+    }
+}
+
+impl std::ops::Sub for Ticks {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self::Output {
+        Self(self.0 - other.0)
+    }
+}
+
+impl std::ops::Div for Ticks {
+    type Output = f64;
+
+    fn div(self, other: Self) -> Self::Output {
+        (self.0 as f64) / (other.0 as f64)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct CpuStats {
-    user: Ticks,
-    nice: Ticks,
-    system: Ticks,
-    idle: Ticks,
-    iowait: Ticks,
-    irq: Ticks,
-    softirq: Ticks,
-    steal: Ticks,
-    guest: Ticks,
-    guest_nice: Ticks,
+    pub user: Ticks,
+    pub nice: Ticks,
+    pub system: Ticks,
+    pub idle: Ticks,
+    pub iowait: Ticks,
+    pub irq: Ticks,
+    pub softirq: Ticks,
+    pub steal: Ticks,
+    pub guest: Ticks,
+    pub guest_nice: Ticks,
 }
 
 impl CpuStats {
@@ -88,15 +112,38 @@ impl CpuStats {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProcStat {
-    cpu: CpuStats,
-    cpus: Vec<CpuStats>,
-    num_forks: u64,
-    num_context_switches: u64,
-    procs_running: u64,
-    procs_blocked: u64,
-    boot_time: u64, // boot time in seconds since the epoch
+    pub cpu: CpuStats,
+    pub cpus: Vec<CpuStats>,
+    pub num_forks: u64,
+    pub num_context_switches: u64,
+    pub procs_running: u64,
+    pub procs_blocked: u64,
+    pub boot_time: u64, // boot time in seconds since the epoch
+}
+
+impl crate::stats::StatType for ProcStat {
+    fn name() -> &'static str {
+        PROC_STAT_PATH
+    }
+
+    fn new_zero() -> Self {
+        Self {
+            cpu: CpuStats::zero(),
+            cpus: Vec::new(),
+            num_forks: 0,
+            num_context_switches: 0,
+            procs_running: 0,
+            procs_blocked: 0,
+            boot_time: 0,
+        }
+    }
+
+    fn update(&mut self) -> Result<(), crate::stats::StatsError> {
+        *self = Self::read()?;
+        Ok(())
+    }
 }
 
 impl ProcStat {

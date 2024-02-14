@@ -1,7 +1,7 @@
-use crate::collectors::diskstats::ProcDiskStats;
-use crate::collectors::procstat::ProcStat;
-use crate::config::{Config, CpuWidgetConfig, DiskIoWidgetConfig, WidgetConfig};
-use crate::widgets::{CpuWidget, DiskIoWidget, Widget};
+use crate::config::{Config, WidgetConfig};
+use crate::widgets::cpu::CpuWidget;
+use crate::widgets::disk_io::DiskIoWidget;
+use crate::widgets::Widget;
 use anyhow::Result;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
@@ -18,7 +18,8 @@ pub struct Waymon {
     timeout_id: Option<glib::source::SourceId>,
     window: Option<gtk::Window>,
     last_update: Instant,
-    widgets: Vec<Rc<dyn Widget>>,
+    widgets: Vec<Rc<RefCell<dyn Widget>>>,
+    all_stats: crate::stats::AllStats,
 }
 
 pub struct WaymonState {
@@ -37,7 +38,6 @@ impl WaymonState {
         let mut waymon = self.cell.borrow_mut();
         waymon.create_window();
         waymon.last_update = Instant::now();
-        waymon.update_stats();
 
         assert_eq!(waymon.timeout_id, None);
         let new_ref = self.cell.clone();
@@ -77,6 +77,7 @@ impl Waymon {
             window: None,
             last_update: Instant::now(),
             widgets: Vec::new(),
+            all_stats: crate::stats::AllStats::new(),
         };
         Ok(waymon)
     }
@@ -136,26 +137,14 @@ impl Waymon {
 
     pub fn add_widgets(&mut self, container: &gtk::Box) {
         for widget_config in &self.config.widgets {
-            let widget: Rc<dyn Widget> = match widget_config {
-                WidgetConfig::Cpu(cpu) => self.add_cpu_widget(cpu, container),
-                WidgetConfig::DiskIO(disk) => Rc::new(self.add_disk_io_widget(disk, container)),
+            let widget: Rc<RefCell<dyn Widget>> = match widget_config {
+                WidgetConfig::Cpu(cpu) => CpuWidget::new(container, cpu, &mut self.all_stats),
+                WidgetConfig::DiskIO(disk) => {
+                    DiskIoWidget::new(container, disk, &mut self.all_stats)
+                }
             };
             self.widgets.push(widget);
         }
-    }
-
-    fn add_cpu_widget(&self, config: &CpuWidgetConfig, container: &gtk::Box) -> Rc<CpuWidget> {
-        CpuWidget::new(container, config)
-    }
-
-    fn add_disk_io_widget(
-        &self,
-        config: &DiskIoWidgetConfig,
-        container: &gtk::Box,
-    ) -> DiskIoWidget {
-        Self::add_widget_label(container, &config.label);
-        println!("disk widget for: {:?}", config.disk);
-        DiskIoWidget::new()
     }
 
     pub fn add_widget_label(container: &gtk::Box, text: &str) {
@@ -172,15 +161,11 @@ impl Waymon {
 
     fn on_tick(&mut self) {
         let now = Instant::now();
-        let delta = now - self.last_update;
-        self.last_update = now;
-        println!("tick!: {:?}", delta);
-        self.update_stats()
-    }
-
-    fn update_stats(&mut self) {
-        let _ = ProcStat::read();
-        let _ = ProcDiskStats::read();
+        self.all_stats.update(now);
+        for w_rc in &self.widgets {
+            let mut w = w_rc.borrow_mut();
+            w.update();
+        }
     }
 }
 
