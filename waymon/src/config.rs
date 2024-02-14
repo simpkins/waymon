@@ -3,46 +3,32 @@ use serde::{Deserialize, Deserializer};
 use std::path::Path;
 use std::time::Duration;
 
-#[derive(Debug)]
+const DEFAULT_WIDTH: u32 = 100;
+
+#[derive(Debug, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_interval")]
+    #[serde(deserialize_with = "parse_duration")]
     pub interval: Duration,
+    #[serde(default = "default_width")]
+    pub width: u32,
+    #[serde(default, rename = "widget")]
     pub widgets: Vec<WidgetConfig>,
 }
 
-impl Config {
-    pub fn new() -> Config {
-        Config {
-            interval: Duration::from_secs(1),
-            widgets: Vec::new(),
-        }
-    }
-
-    pub fn load(path: &Path) -> Result<Config> {
-        let config_contents = read_config_contents(path)?;
-        let config_toml: ConfigToml =
-            toml::from_str(&config_contents).with_context(|| format!("{}", path.display()))?;
-        let mut cfg = Self::new();
-        cfg.update_from_toml(config_toml);
-        Ok(cfg)
-    }
-
-    fn update_from_toml(&mut self, data: ConfigToml) {
-        if let Some(i) = data.interval {
-            self.interval = i;
-        }
-        eprintln!("testing: {:?}", data.widget);
-        self.widgets = data.widget;
-    }
+fn default_interval() -> Duration {
+    Duration::from_secs(1)
 }
 
-#[derive(Debug, Deserialize)]
-struct ConfigToml {
-    #[serde(default)]
-    #[serde(deserialize_with = "parse_option_duration")]
-    pub interval: Option<Duration>,
+fn default_width() -> u32 {
+    DEFAULT_WIDTH
+}
 
-    #[serde(default)]
-    pub widget: Vec<WidgetConfig>,
+impl Config {
+    pub fn load(path: &Path) -> Result<Config> {
+        let config_contents = read_config_contents(path)?;
+        toml::from_str::<Config>(&config_contents).with_context(|| format!("{}", path.display()))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,16 +37,23 @@ pub enum WidgetConfig {
     #[serde(rename = "cpu")]
     Cpu(CpuWidgetConfig),
     #[serde(rename = "disk_io")]
-    DiskIO(DiskIOWidgetConfig),
+    DiskIO(DiskIoWidgetConfig),
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CpuWidgetConfig {
     pub label: String,
+
+    #[serde(default = "default_cpu_height")]
+    pub height: u32,
+}
+
+fn default_cpu_height() -> u32 {
+    100
 }
 
 #[derive(Debug, Deserialize)]
-pub struct DiskIOWidgetConfig {
+pub struct DiskIoWidgetConfig {
     pub label: String,
     pub disk: String,
 }
@@ -130,13 +123,6 @@ where
     }
 
     deser.deserialize_any(V)
-}
-
-fn parse_option_duration<'de, D>(deser: D) -> Result<Option<Duration>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    Ok(Some(parse_duration(deser)?))
 }
 
 fn read_config_contents(path: &Path) -> Result<String> {

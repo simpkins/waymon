@@ -7,6 +7,7 @@ use std::path::PathBuf;
 mod collectors;
 mod config;
 mod read;
+mod widgets;
 mod waymon;
 
 #[derive(Debug, Parser)]

@@ -142,13 +142,6 @@ impl DiskStats {
 
         Ok(d)
     }
-
-    pub fn bytes_read(&self) -> u64 {
-        self.num_sectors_read * BYTES_PER_SECTOR
-    }
-    pub fn bytes_written(&self) -> u64 {
-        self.num_sectors_written * BYTES_PER_SECTOR
-    }
 }
 
 #[derive(Debug)]
@@ -226,8 +219,6 @@ mod tests {
         assert_eq!(ssd.ms_discarding, 1);
         assert_eq!(ssd.num_flushes, 98812);
         assert_eq!(ssd.ms_flushing, 164259);
-        assert_eq!(ssd.bytes_read(), 16306863104);
-        assert_eq!(ssd.bytes_written(), 44064965632);
 
         Ok(())
     }

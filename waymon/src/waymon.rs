@@ -1,5 +1,7 @@
+use crate::collectors::diskstats::ProcDiskStats;
 use crate::collectors::procstat::ProcStat;
-use crate::config::{Config, CpuWidgetConfig, DiskIOWidgetConfig, WidgetConfig};
+use crate::config::{Config, CpuWidgetConfig, DiskIoWidgetConfig, WidgetConfig};
+use crate::widgets::{CpuWidget, DiskIoWidget, Widget};
 use anyhow::Result;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
@@ -16,6 +18,7 @@ pub struct Waymon {
     timeout_id: Option<glib::source::SourceId>,
     window: Option<gtk::Window>,
     last_update: Instant,
+    widgets: Vec<Rc<dyn Widget>>,
 }
 
 pub struct WaymonState {
@@ -33,7 +36,7 @@ impl WaymonState {
     pub fn start(&self) {
         let mut waymon = self.cell.borrow_mut();
         waymon.create_window();
-        self.last_update = Instant::now();
+        waymon.last_update = Instant::now();
         waymon.update_stats();
 
         assert_eq!(waymon.timeout_id, None);
@@ -73,6 +76,7 @@ impl Waymon {
             timeout_id: None,
             window: None,
             last_update: Instant::now(),
+            widgets: Vec::new(),
         };
         Ok(waymon)
     }
@@ -108,7 +112,7 @@ impl Waymon {
         window.set_anchor(Edge::Top, true);
         window.set_anchor(Edge::Bottom, true);
 
-        window.set_default_size(100, -1);
+        window.set_default_size(self.config.width as i32, -1);
 
         let box_widget = gtk::Box::new(Orientation::Vertical, /*spacing*/ 0);
         box_widget.add_css_class("background");
@@ -130,25 +134,31 @@ impl Waymon {
         self.window = Some(window);
     }
 
-    pub fn add_widgets(&self, container: &gtk::Box) {
-        for w in &self.config.widgets {
-            match w {
+    pub fn add_widgets(&mut self, container: &gtk::Box) {
+        for widget_config in &self.config.widgets {
+            let widget: Rc<dyn Widget> = match widget_config {
                 WidgetConfig::Cpu(cpu) => self.add_cpu_widget(cpu, container),
-                WidgetConfig::DiskIO(disk) => self.add_disk_io_widget(disk, container),
-            }
+                WidgetConfig::DiskIO(disk) => Rc::new(self.add_disk_io_widget(disk, container)),
+            };
+            self.widgets.push(widget);
         }
     }
 
-    fn add_cpu_widget(&self, config: &CpuWidgetConfig, container: &gtk::Box) {
-        self.add_widget_label(&config.label, container);
+    fn add_cpu_widget(&self, config: &CpuWidgetConfig, container: &gtk::Box) -> Rc<CpuWidget> {
+        CpuWidget::new(container, config)
     }
 
-    fn add_disk_io_widget(&self, config: &DiskIOWidgetConfig, container: &gtk::Box) {
-        self.add_widget_label(&config.label, container);
+    fn add_disk_io_widget(
+        &self,
+        config: &DiskIoWidgetConfig,
+        container: &gtk::Box,
+    ) -> DiskIoWidget {
+        Self::add_widget_label(container, &config.label);
         println!("disk widget for: {:?}", config.disk);
+        DiskIoWidget::new()
     }
 
-    fn add_widget_label(&self, text: &str, container: &gtk::Box) {
+    pub fn add_widget_label(container: &gtk::Box, text: &str) {
         let label = gtk::Label::new(None);
         label.add_css_class("chart-header");
         label.set_markup(&format!("<span font_desc=\"12.0\">{}</span>", text));
@@ -170,6 +180,7 @@ impl Waymon {
 
     fn update_stats(&mut self) {
         let _ = ProcStat::read();
+        let _ = ProcDiskStats::read();
     }
 }
 
