@@ -13,6 +13,11 @@ impl Chart {
     pub fn configure(
         da: &gtk::DrawingArea,
         height: u32,
+        // We accept callback by value here rather than by reference, since we expect most callers
+        // to have an Rc<RefCell<SomeConcreteType>>, and they need to clone the Rc anyway to
+        // convert from an RefCell<SomeConcreteType> to a RefCell<dyn ChartDrawCallback>.
+        // Accepting the argument by value makes this syntax simpler for callers, since Rust will
+        // automatically figure out the type conversion for them when they clone.
         callback: Rc<RefCell<dyn ChartDrawCallback>>,
     ) {
         da.add_css_class("chart");
@@ -24,31 +29,44 @@ impl Chart {
                 cb.borrow().draw(cr, width, height);
             }
         });
-    }
-}
-
-pub struct TimeseriesChart {}
-
-impl TimeseriesChart {
-    pub fn new() -> Self {
-        Self {
-            // annotation: String::new(),
-        }
+        /*
+        let weak_cb: Weak<RefCell<dyn ChartDrawCallback>> = Rc::downgrade(&callback);
+        da.connect_root_notify(move |_| {
+            if let Some(cb) = weak_cb.upgrade() {
+                cb.borrow().root_changed();
+            }
+        });
+        */
     }
 
-    pub fn add_ui<P: FnMut(&gtk::DrawingArea, &cairo::Context, i32, i32) + 'static>(
-        &self,
-        container: &gtk::Box,
-        width: i32,
-        height: u32,
-        draw_func: P,
+    pub fn draw_annotation(
+        da: &gtk::DrawingArea,
+        cr: &cairo::Context,
+        _width: i32,
+        _height: i32,
+        text: &str,
     ) {
-        let da = gtk::DrawingArea::new();
-        da.add_css_class("chart");
-        da.set_content_width(width);
-        da.set_content_height(height as i32);
-        da.set_draw_func(draw_func);
-        container.append(&da);
+        // TODO: store the layout as a member in the timeseries chart, rather than recreating it
+        // each time.  According to the pango cairo docs we need to regenerate the layout whenever
+        // the widget root changes.  However, in our case we never change the widget root.
+
+        let layout = da.create_pango_layout(Some(text));
+        /*
+        let pango_ctx = gtk::pango::Context::new();
+        pango_ctx.set_font_map(da.pango_context().font_map().as_ref());
+        let layout = gtk::pango::Layout::new(&pango_ctx);
+        layout.set_text(text);
+        */
+
+        let font_desc = gtk::pango::FontDescription::from_string("Sans 9");
+        layout.set_font_description(Some(&font_desc));
+
+        // pango_layout_set_alignment(layout, PANGO_ALIGN_RIGHT);
+        // pango_layout_set_font_description(layout, font_desc_);
+
+        cr.set_source_rgb(0.4, 0.4, 0.4);
+        cr.move_to(2.0, 0.0);
+        pangocairo::functions::show_layout(cr, &layout);
     }
 }
 

@@ -1,17 +1,27 @@
-use crate::collectors::diskstats::ProcDiskStats;
+use crate::collectors::diskstats::{ProcDiskStats, BYTES_PER_SECTOR};
 use crate::config::DiskIoWidgetConfig;
 use crate::stats::{AllStats, StatsDelta};
 use crate::waymon::Waymon;
-use crate::widgets::timeseries::TimeseriesChart;
+use crate::widgets::timeseries::{Chart, ChartDrawCallback, StackedTimeseriesChart};
 use crate::widgets::Widget;
 use gtk::cairo;
+use gtk::prelude::*;
 use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
+use std::time::Duration;
 
+// We suppress the non_snake_case warning here so that we can more clearly disambiguate Bps (bytes
+// per second) from bps (bits per second).
+#[allow(non_snake_case)]
 pub struct DiskIoWidget {
     disk: String,
     stats: Rc<RefCell<StatsDelta<ProcDiskStats>>>,
+    da: gtk::DrawingArea,
+    chart: StackedTimeseriesChart<2>,
     disk_present: bool,
+    busy_fraction: f64,
+    read_Bps: f64,
+    write_Bps: f64,
 }
 
 impl DiskIoWidget {
@@ -19,33 +29,61 @@ impl DiskIoWidget {
         container: &gtk::Box,
         config: &DiskIoWidgetConfig,
         all_stats: &mut AllStats,
+        history_length: usize,
     ) -> Rc<RefCell<DiskIoWidget>> {
-        let widget = Rc::new(RefCell::new(DiskIoWidget {
+        let widget_rc = Rc::new(RefCell::new(DiskIoWidget {
             disk: config.disk.clone(),
             stats: all_stats.get_disk_stats(),
+            da: gtk::DrawingArea::new(),
+            chart: StackedTimeseriesChart::<2>::new(history_length),
             // Initialize disk_present to true so that we will log a warning once
             // if it is actually not present.
             disk_present: true,
+            busy_fraction: 0.0,
+            read_Bps: 0.0,
+            write_Bps: 0.0,
         }));
-        Waymon::add_widget_label(container, &config.label);
-        let chart = TimeseriesChart::new();
-
-        let weak: Weak<RefCell<Self>> = Rc::downgrade(&widget);
-        chart.add_ui(container, -1, config.height, move |_, cr, width, height| {
-            if let Some(w) = weak.upgrade() {
-                w.borrow().draw(cr, width, height);
-            }
-        });
-        widget
+        {
+            let widget = widget_rc.borrow();
+            Waymon::add_widget_label(container, &config.label);
+            Chart::configure(&widget.da, config.height, widget_rc.clone());
+            container.append(&widget.da);
+        }
+        widget_rc
     }
+}
 
+fn humanify_f64(value: f64) -> String {
+  if value < 1000.0 {
+    return format!("{}B", value);
+  }
+  if value < 1_000_000.0 {
+    return format!("{}KB", (value as u64) / 1000);
+  }
+  if value < 1_000_000_000.0 {
+    return format!("{}MB", (value as u64) / 1_000_000);
+  }
+  if value < 1_000_000_000_000.0 {
+    return format!("{}GB", (value as u64) / 1_000_000_000);
+  }
+  return format!("{}TB", (value as u64) / 1_000_000_000_000);
+}
+
+impl ChartDrawCallback for DiskIoWidget {
     fn draw(&self, cr: &cairo::Context, width: i32, height: i32) {
-        eprintln!("draw! w={width} h={height}");
-        cr.set_line_width(1.0);
-        cr.set_source_rgb(0.0, 0.0, 1.0);
-        cr.move_to(width as f64 * 0.5, height as f64 * 0.5);
-        cr.line_to(width as f64 * 0.75, height as f64 * 0.75);
-        let _ = cr.stroke();
+        self.chart.draw(cr, width, height);
+
+        if self.disk_present {
+            let annotation = format!(
+                "{}/s R\n{}/s W\n{:.0}% busy",
+                humanify_f64(self.read_Bps),
+                humanify_f64(self.write_Bps),
+                0.0
+            ); // self.busy_fraction * 100.0);
+            Chart::draw_annotation(&self.da, cr, width, height, &annotation);
+        } else {
+            Chart::draw_annotation(&self.da, cr, width, height, "Not Present");
+        }
     }
 }
 
@@ -57,19 +95,31 @@ impl Widget for DiskIoWidget {
             new_stats.disks.get(&self.disk),
             old_stats.disks.get(&self.disk),
         ) {
-            let ms_busy = new.ms_doing_io - old.ms_doing_io;
+            self.disk_present = true;
+            let ms_busy = Duration::from_millis((new.ms_doing_io - old.ms_doing_io) as u64);
+            let delta_secs = s.time_delta().as_secs_f64();
+            self.busy_fraction = ms_busy.as_secs_f64() / delta_secs;
             eprintln!(
                 "{} disk usage: {:?} busy, {:?} total",
                 &self.disk,
                 ms_busy,
                 s.time_delta()
             );
-            self.disk_present = true;
+
+            let sectors_read = new.num_sectors_read - old.num_sectors_read;
+            let sectors_written = new.num_sectors_written - old.num_sectors_written;
+            let read_bytes = sectors_read * BYTES_PER_SECTOR;
+            let write_bytes = sectors_written * BYTES_PER_SECTOR;
+            self.read_Bps = (read_bytes as f64) / delta_secs;
+            self.write_Bps = (write_bytes as f64) / delta_secs;
+            self.chart.add_values([read_bytes, write_bytes])
         } else if self.disk_present {
             eprintln!("{} disk not present", &self.disk);
             self.disk_present = false;
+            self.chart.add_values([0, 0]);
         }
-        // TODO: read stats
-        // TODO: mark that the drawing area needs to be redrawn
+
+        // Mark that the drawing area needs to be redrawn
+        self.da.queue_draw();
     }
 }

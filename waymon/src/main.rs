@@ -29,6 +29,11 @@ fn main() -> anyhow::Result<()> {
         return Err(anyhow!("unable to determine config directory"));
     };
 
+    // I'm manually calling gtk::init and driving the glib main loop here, rather than using
+    // gtk::Application.  I don't really want the gtk Application's handling of application
+    // uniqueness or it's command line argument parsing an file open semantics.
+    gtk::init()?;
+
     let waymon = match waymon::WaymonState::new(&config_dir) {
         Ok(waymon) => waymon,
         Err(err) => {
@@ -37,10 +42,6 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    // I'm manually calling gtk::init and driving the glib main loop here, rather than using
-    // gtk::Application.  I don't really want the gtk Application's handling of application
-    // uniqueness or it's command line argument parsing an file open semantics.
-    gtk::init()?;
     waymon.start();
     let main_loop = glib::MainLoop::new(None, false);
     main_loop.run();

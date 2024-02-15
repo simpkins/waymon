@@ -16,7 +16,7 @@ pub struct Waymon {
     config_dir: PathBuf,
     config: Config,
     timeout_id: Option<glib::source::SourceId>,
-    window: Option<gtk::Window>,
+    window: Window,
     last_update: Instant,
     // It's sort of annoying that we have to store each widget in an Rc<RefCell>, given that the
     // entire Waymon structure itself is also in a Rc<RefCell> and only one operation ever happens
@@ -80,7 +80,7 @@ impl Waymon {
             config_dir: config_dir.to_path_buf(),
             config: Config::load(&config_dir.join("config.toml"))?,
             timeout_id: None,
-            window: None,
+            window: Window::new(),
             last_update: Instant::now(),
             widgets: Vec::new(),
             all_stats: crate::stats::AllStats::new(),
@@ -102,34 +102,33 @@ impl Waymon {
 
     pub fn create_window(&mut self) {
         // Create a window and set the title
-        let window = Window::new();
-        window.set_title(Some("waymon"));
+        self.window.set_title(Some("waymon"));
 
         // Configure the window as a layer surface
-        window.init_layer_shell();
+        self.window.init_layer_shell();
         // Display below normal windows
-        window.set_layer(Layer::Top);
+        self.window.set_layer(Layer::Top);
         // Push other windows out of the way
-        window.auto_exclusive_zone_enable();
+        self.window.auto_exclusive_zone_enable();
 
         // Anchor to the right edge
-        window.set_anchor(Edge::Right, true);
+        self.window.set_anchor(Edge::Right, true);
         // Anchor to both top and bottom edges, to span the entire height of the
         // screen.
-        window.set_anchor(Edge::Top, true);
-        window.set_anchor(Edge::Bottom, true);
+        self.window.set_anchor(Edge::Top, true);
+        self.window.set_anchor(Edge::Bottom, true);
 
-        window.set_default_size(self.config.width as i32, -1);
+        self.window.set_default_size(self.config.width as i32, -1);
 
         let box_widget = gtk::Box::new(Orientation::Vertical, /*spacing*/ 0);
         box_widget.add_css_class("background");
-        window.set_child(Some(&box_widget));
+        self.window.set_child(Some(&box_widget));
 
         let css = gtk::CssProvider::new();
         css.connect_parsing_error(report_css_parsing_error);
         css.load_from_path(self.css_path());
         gtk::style_context_add_provider_for_display(
-            &WidgetExt::display(&window),
+            &WidgetExt::display(&self.window),
             &css,
             gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
         );
@@ -137,8 +136,7 @@ impl Waymon {
         self.add_widgets(&box_widget);
 
         // Present window
-        window.present();
-        self.window = Some(window);
+        self.window.present();
     }
 
     pub fn add_widgets(&mut self, container: &gtk::Box) {
@@ -152,7 +150,7 @@ impl Waymon {
                     CpuWidget::new(container, cpu, &mut self.all_stats, history_length)
                 }
                 WidgetConfig::DiskIO(disk) => {
-                    DiskIoWidget::new(container, disk, &mut self.all_stats)
+                    DiskIoWidget::new(container, disk, &mut self.all_stats, history_length)
                 }
             };
             self.widgets.push(widget);
@@ -177,17 +175,6 @@ impl Waymon {
         for w_rc in &self.widgets {
             let mut w = w_rc.borrow_mut();
             w.update();
-        }
-    }
-}
-
-impl Drop for Waymon {
-    fn drop(&mut self) {
-        if let Some(t) = self.timeout_id.take() {
-            t.remove();
-        }
-        if let Some(win) = self.window.take() {
-            win.destroy();
         }
     }
 }

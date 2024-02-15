@@ -41,8 +41,14 @@ impl CpuWidget {
 
 impl ChartDrawCallback for CpuWidget {
     fn draw(&self, cr: &cairo::Context, width: i32, height: i32) {
-        eprintln!("cpu draw! w={width} h={height}");
         self.chart.draw(cr, width, height);
+        Chart::draw_annotation(
+            &self.da,
+            cr,
+            width,
+            height,
+            &format!("{}%", (self.usage_ratio * 100.0) as u32),
+        );
     }
 }
 
@@ -55,10 +61,12 @@ impl Widget for CpuWidget {
         let system = new.cpu.system - old.cpu.system;
         let idle = new.cpu.idle - old.cpu.idle;
         let total_used = user + system + nice;
-        self.usage_ratio = total_used / (total_used + idle);
+        let total = total_used + idle;
+        self.usage_ratio = total_used / total;
         eprintln!("CPU usage: {:.2}", self.usage_ratio * 100.0);
 
-        self.chart.add_values([nice.value(), user.value(), system.value()]);
+        self.chart
+            .add_values([nice.value(), user.value(), system.value()]);
 
         // Mark that the drawing area needs to be redrawn
         self.da.queue_draw();
