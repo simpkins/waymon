@@ -18,6 +18,12 @@ pub struct Waymon {
     timeout_id: Option<glib::source::SourceId>,
     window: Option<gtk::Window>,
     last_update: Instant,
+    // It's sort of annoying that we have to store each widget in an Rc<RefCell>, given that the
+    // entire Waymon structure itself is also in a Rc<RefCell> and only one operation ever happens
+    // at a time.  It would be nicer if we could have only the single top-level Rc<RefCell>, and
+    // each callback only had to try borrowing from that.  Unfortunately, there doesn't seem to be
+    // a good way to express this currently with Rust.  We pay the cost of doing some extra
+    // unnecessary runtime borrow checks as a result.
     widgets: Vec<Rc<RefCell<dyn Widget>>>,
     all_stats: crate::stats::AllStats,
 }
@@ -136,9 +142,15 @@ impl Waymon {
     }
 
     pub fn add_widgets(&mut self, container: &gtk::Box) {
+        // Our charts generally display one pixel per data point.
+        // Store history for exactly as many data points as we have pixels wide.
+        let history_length: usize = self.config.width as usize;
+
         for widget_config in &self.config.widgets {
             let widget: Rc<RefCell<dyn Widget>> = match widget_config {
-                WidgetConfig::Cpu(cpu) => CpuWidget::new(container, cpu, &mut self.all_stats),
+                WidgetConfig::Cpu(cpu) => {
+                    CpuWidget::new(container, cpu, &mut self.all_stats, history_length)
+                }
                 WidgetConfig::DiskIO(disk) => {
                     DiskIoWidget::new(container, disk, &mut self.all_stats)
                 }

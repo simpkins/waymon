@@ -1,15 +1,18 @@
 use crate::collectors::procstat::ProcStat;
 use crate::config::CpuWidgetConfig;
 use crate::stats::{AllStats, StatsDelta};
-use crate::widgets::timeseries::TimeseriesChart;
-use crate::widgets::Widget;
 use crate::waymon::Waymon;
+use crate::widgets::timeseries::{Chart, ChartDrawCallback, StackedTimeseriesChart};
+use crate::widgets::Widget;
 use gtk::cairo;
+use gtk::prelude::*;
 use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 pub struct CpuWidget {
     stats: Rc<RefCell<StatsDelta<ProcStat>>>,
+    da: gtk::DrawingArea,
+    chart: StackedTimeseriesChart<3>,
     usage_ratio: f64,
 }
 
@@ -18,30 +21,28 @@ impl CpuWidget {
         container: &gtk::Box,
         config: &CpuWidgetConfig,
         all_stats: &mut AllStats,
+        history_length: usize,
     ) -> Rc<RefCell<CpuWidget>> {
-        let widget = Rc::new(RefCell::new(CpuWidget {
+        let widget_rc = Rc::new(RefCell::new(CpuWidget {
             stats: all_stats.get_proc_stats(),
+            da: gtk::DrawingArea::new(),
+            chart: StackedTimeseriesChart::<3>::new(history_length),
             usage_ratio: 0.0,
         }));
-        Waymon::add_widget_label(container, &config.label);
-        let chart = TimeseriesChart::new();
-
-        let weak: Weak<RefCell<Self>> = Rc::downgrade(&widget);
-        chart.add_ui(container, -1, config.height, move |_, cr, width, height| {
-            if let Some(w) = weak.upgrade() {
-                w.borrow().draw(cr, width, height);
-            }
-        });
-        widget
+        {
+            let widget = widget_rc.borrow();
+            Waymon::add_widget_label(container, &config.label);
+            Chart::configure(&widget.da, config.height, widget_rc.clone());
+            container.append(&widget.da);
+        }
+        widget_rc
     }
+}
 
+impl ChartDrawCallback for CpuWidget {
     fn draw(&self, cr: &cairo::Context, width: i32, height: i32) {
-        eprintln!("draw! w={width} h={height}");
-        cr.set_line_width(1.0);
-        cr.set_source_rgb(1.0, 0.0, 0.0);
-        cr.move_to(width as f64 * 0.5, height as f64 * 0.5);
-        cr.line_to(width as f64 * 0.5, height as f64 * 0.75);
-        let _ = cr.stroke();
+        eprintln!("cpu draw! w={width} h={height}");
+        self.chart.draw(cr, width, height);
     }
 }
 
@@ -55,8 +56,11 @@ impl Widget for CpuWidget {
         let idle = new.cpu.idle - old.cpu.idle;
         let total_used = user + system + nice;
         self.usage_ratio = total_used / (total_used + idle);
-        eprintln!("CPU usage: {:.2}", self.usage_ratio * 100.0)
-        // TODO: read stats
-        // TODO: mark that the drawing area needs to be redrawn
+        eprintln!("CPU usage: {:.2}", self.usage_ratio * 100.0);
+
+        self.chart.add_values([nice.value(), user.value(), system.value()]);
+
+        // Mark that the drawing area needs to be redrawn
+        self.da.queue_draw();
     }
 }

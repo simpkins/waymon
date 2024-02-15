@@ -20,6 +20,12 @@ pub enum ParseError {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Ticks(u64);
 
+impl Ticks {
+    pub fn value(&self) -> u64 {
+        self.0
+    }
+}
+
 impl std::ops::Add for Ticks {
     type Output = Self;
 
