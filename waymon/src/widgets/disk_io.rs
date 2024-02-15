@@ -17,7 +17,7 @@ pub struct DiskIoWidget {
     disk: String,
     stats: Rc<RefCell<StatsDelta<ProcDiskStats>>>,
     da: gtk::DrawingArea,
-    chart: StackedTimeseriesChart<2>,
+    chart: StackedTimeseriesChart<f64, 2>,
     disk_present: bool,
     busy_fraction: f64,
     read_Bps: f64,
@@ -35,7 +35,7 @@ impl DiskIoWidget {
             disk: config.disk.clone(),
             stats: all_stats.get_disk_stats(),
             da: gtk::DrawingArea::new(),
-            chart: StackedTimeseriesChart::<2>::new(history_length),
+            chart: StackedTimeseriesChart::new(history_length),
             // Initialize disk_present to true so that we will log a warning once
             // if it is actually not present.
             disk_present: true,
@@ -54,24 +54,30 @@ impl DiskIoWidget {
 }
 
 fn humanify_f64(value: f64) -> String {
-  if value < 1000.0 {
-    return format!("{}B", value);
-  }
-  if value < 1_000_000.0 {
-    return format!("{}KB", (value as u64) / 1000);
-  }
-  if value < 1_000_000_000.0 {
-    return format!("{}MB", (value as u64) / 1_000_000);
-  }
-  if value < 1_000_000_000_000.0 {
-    return format!("{}GB", (value as u64) / 1_000_000_000);
-  }
-  return format!("{}TB", (value as u64) / 1_000_000_000_000);
+    if value < 1000.0 {
+        return format!("{}B", value);
+    }
+    if value < 1_000_000.0 {
+        return format!("{}KB", (value as u64) / 1000);
+    }
+    if value < 1_000_000_000.0 {
+        return format!("{}MB", (value as u64) / 1_000_000);
+    }
+    if value < 1_000_000_000_000.0 {
+        return format!("{}GB", (value as u64) / 1_000_000_000);
+    }
+    return format!("{}TB", (value as u64) / 1_000_000_000_000);
 }
 
 impl ChartDrawCallback for DiskIoWidget {
     fn draw(&self, cr: &cairo::Context, width: i32, height: i32) {
-        self.chart.draw(cr, width, height);
+        let max_value = self.chart.max_value();
+        let y_scale = if max_value <= 0.0 {
+            1.0
+        } else {
+            ((height - 2) as f64) / max_value
+        };
+        self.chart.draw(cr, width, height, y_scale);
 
         if self.disk_present {
             let annotation = format!(
@@ -112,11 +118,11 @@ impl Widget for DiskIoWidget {
             let write_bytes = sectors_written * BYTES_PER_SECTOR;
             self.read_Bps = (read_bytes as f64) / delta_secs;
             self.write_Bps = (write_bytes as f64) / delta_secs;
-            self.chart.add_values([read_bytes, write_bytes])
+            self.chart.add_values(&[self.read_Bps, self.write_Bps])
         } else if self.disk_present {
             eprintln!("{} disk not present", &self.disk);
             self.disk_present = false;
-            self.chart.add_values([0, 0]);
+            self.chart.add_values(&[0.0, 0.0]);
         }
 
         // Mark that the drawing area needs to be redrawn

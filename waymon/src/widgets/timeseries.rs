@@ -1,6 +1,7 @@
 use gtk::cairo;
 use gtk::prelude::*;
 use std::cell::RefCell;
+use std::iter::Sum;
 use std::rc::{Rc, Weak};
 
 pub struct Chart {}
@@ -82,10 +83,34 @@ impl Color {
     }
 }
 
-pub struct StackedTimeseriesChart<const NUM_SERIES: usize> {
-    data: Vec<[u64; NUM_SERIES]>,
+// We unfortunately can't use the standard Into() trait, since it isn't implemented for i64 and u64
+// since f64 cannot represent the full 64-bit integer range.  In practice we don't really care
+// about this issue for the extreme ends of the integer space.  If we encounter a situation where
+// it does matter we could replace into_f64_lossy() with some sort of other API that takes the
+// desired scaling factor as a parameter, since we know the scaled result should typically be a
+// sane value between 0 and the height of the window in pixels.
+pub trait IntoF64Lossy {
+    fn into_f64_lossy(&self) -> f64;
+}
+impl IntoF64Lossy for f64 {
+    fn into_f64_lossy(&self) -> f64 {
+        *self
+    }
+}
+impl IntoF64Lossy for u64 {
+    fn into_f64_lossy(&self) -> f64 {
+        *self as f64
+    }
+}
+
+pub struct StackedTimeseriesChart<T, const NUM_SERIES: usize>
+where
+    T: Copy + Default + PartialOrd + Sum + IntoF64Lossy,
+{
+    data: Vec<[T; NUM_SERIES]>,
     colors: [Color; NUM_SERIES],
     next_index: usize,
+    max_value: T,
 }
 
 fn get_default_color(idx: usize, num_colors: usize) -> Color {
@@ -93,28 +118,71 @@ fn get_default_color(idx: usize, num_colors: usize) -> Color {
     Color::new(0.0, 0.0, 1.0 - pct)
 }
 
-impl<const NUM_SERIES: usize> StackedTimeseriesChart<NUM_SERIES> {
-    pub fn new(ts_size: usize) -> StackedTimeseriesChart<NUM_SERIES> {
-        let mut chart = StackedTimeseriesChart::<NUM_SERIES> {
+impl<T, const NUM_SERIES: usize> StackedTimeseriesChart<T, NUM_SERIES>
+where
+    T: Copy + Default + PartialOrd + Sum + IntoF64Lossy,
+{
+    pub fn new(ts_size: usize) -> StackedTimeseriesChart<T, NUM_SERIES> {
+        let mut chart = StackedTimeseriesChart::<T, NUM_SERIES> {
             data: Vec::with_capacity(ts_size),
             colors: core::array::from_fn(|idx| get_default_color(idx, NUM_SERIES)),
             next_index: 0,
+            max_value: Default::default(),
         };
-        chart.data.resize(ts_size, core::array::from_fn(|_| 0));
+        chart
+            .data
+            .resize(ts_size, core::array::from_fn(|_| Default::default()));
         chart
     }
 
-    pub fn add_values(&mut self, v: [u64; NUM_SERIES]) {
-        self.data[self.next_index] = v;
+    // Returns the maximum total value stored in the timeseries.
+    pub fn max_value(&self) -> T {
+        self.max_value
+    }
+
+    pub fn add_values(&mut self, v: &[T; NUM_SERIES]) {
+        // Our chart can only show positive values.  Filter out any negative numbers.
+        let x = v.map(|n| {
+            if n >= Default::default() {
+                n
+            } else {
+                Default::default()
+            }
+        });
+
+        // Update our stored maximum value, if these new data points are a new maximum,
+        // or if the value we are expiring was the old maximum.
+        let total: T = x.into_iter().sum();
+        if total >= self.max_value {
+            self.max_value = total;
+            self.data[self.next_index] = x;
+        } else {
+            let expired_total: T = self.data[self.next_index].into_iter().sum();
+            self.data[self.next_index] = x;
+            if expired_total >= self.max_value {
+                self.max_value = self.compute_max();
+            }
+        }
+
         self.next_index += 1;
         if self.next_index >= self.data.len() {
             self.next_index = 0;
         }
     }
 
-    pub fn draw(&self, cr: &cairo::Context, width: i32, height: i32) {
+    fn compute_max(&self) -> T {
+        let mut max_value: T = Default::default();
+        for &entry in &self.data {
+            let total: T = entry.into_iter().sum();
+            if total > max_value {
+                max_value = total;
+            }
+        }
+        max_value
+    }
+
+    pub fn draw(&self, cr: &cairo::Context, width: i32, height: i32, y_scale: f64) {
         let x_scale: f64 = 1.0;
-        let y_scale: f64 = 1.0;
 
         cr.set_line_width(1.0);
         let mut idx = self.next_index;
@@ -136,7 +204,8 @@ impl<const NUM_SERIES: usize> StackedTimeseriesChart<NUM_SERIES> {
                 let c = &self.colors[ts_idx];
                 cr.move_to(x, cur_height);
                 cr.set_source_rgb(c.r, c.g, c.b);
-                let y = (value as f64) * y_scale;
+                let value_f64: f64 = value.into_f64_lossy();
+                let y = value_f64 * y_scale;
                 cur_height -= y;
                 cr.line_to(x, cur_height);
                 let _ = cr.stroke();
