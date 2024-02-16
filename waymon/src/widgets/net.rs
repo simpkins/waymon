@@ -62,8 +62,8 @@ impl ChartDrawCallback for NetWidget {
         if self.dev_present {
             let annotation = format!(
                 "{}/s rx\n{}/s tx",
-                humanify_f64(self.rx_Bps),
-                humanify_f64(self.tx_Bps)
+                humanify_f64(self.rx_Bps, 3),
+                humanify_f64(self.tx_Bps, 3)
             );
             Chart::draw_annotation(&self.da, cr, width, height, &annotation);
         } else {

@@ -1,6 +1,7 @@
 use crate::collectors::diskstats::ProcDiskStats;
-use crate::collectors::procstat::ProcStat;
+use crate::collectors::meminfo::MemoryStats;
 use crate::collectors::net::NetDevStats;
+use crate::collectors::procstat::ProcStat;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -36,6 +37,14 @@ impl<T: StatType> StatsDelta<T> {
             (&self.a, &self.b)
         } else {
             (&self.b, &self.a)
+        }
+    }
+
+    pub fn get_new(&self) -> &T {
+        if self.a_newer {
+            &self.a
+        } else {
+            &self.b
         }
     }
 }
@@ -86,19 +95,17 @@ impl<T: StatType> StatsDeltaIntf for StatsDelta<T> {
     }
 }
 
+#[derive(Default)]
 pub struct AllStats {
     proc_stats: Option<Rc<RefCell<StatsDelta<ProcStat>>>>,
     disk_stats: Option<Rc<RefCell<StatsDelta<ProcDiskStats>>>>,
     net_stats: Option<Rc<RefCell<StatsDelta<NetDevStats>>>>,
+    mem_stats: Option<Rc<RefCell<StatsDelta<MemoryStats>>>>,
 }
 
 impl AllStats {
     pub fn new() -> Self {
-        Self {
-            proc_stats: None,
-            disk_stats: None,
-            net_stats: None,
-        }
+        Default::default()
     }
 
     pub fn get_proc_stats(&mut self) -> Rc<RefCell<StatsDelta<ProcStat>>> {
@@ -113,10 +120,15 @@ impl AllStats {
         Self::get_stat(&mut self.net_stats)
     }
 
+    pub fn get_mem_stats(&mut self) -> Rc<RefCell<StatsDelta<MemoryStats>>> {
+        Self::get_stat(&mut self.mem_stats)
+    }
+
     pub fn update(&mut self, now: Instant) {
         Self::update_stat(&mut self.proc_stats, now);
         Self::update_stat(&mut self.disk_stats, now);
         Self::update_stat(&mut self.net_stats, now);
+        Self::update_stat(&mut self.mem_stats, now);
     }
 
     fn get_stat<T: StatType>(

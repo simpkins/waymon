@@ -67,8 +67,8 @@ impl ChartDrawCallback for DiskIoWidget {
         if self.disk_present {
             let annotation = format!(
                 "{}/s R\n{}/s W\n{:.0}% busy",
-                humanify_f64(self.read_Bps),
-                humanify_f64(self.write_Bps),
+                humanify_f64(self.read_Bps, 3),
+                humanify_f64(self.write_Bps, 3),
                 self.busy_fraction * 100.0
             );
             Chart::draw_annotation(&self.da, cr, width, height, &annotation);

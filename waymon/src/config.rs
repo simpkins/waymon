@@ -40,18 +40,20 @@ pub enum WidgetConfig {
     DiskIO(DiskIoWidgetConfig),
     #[serde(rename = "net")]
     Net(NetWidgetConfig),
+    #[serde(rename = "mem")]
+    Mem(MemWidgetConfig),
+}
+
+fn default_chart_height() -> u32 {
+    100
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CpuWidgetConfig {
     pub label: String,
 
-    #[serde(default = "default_cpu_chart_height")]
+    #[serde(default = "default_chart_height")]
     pub height: u32,
-}
-
-fn default_cpu_chart_height() -> u32 {
-    100
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,12 +61,8 @@ pub struct DiskIoWidgetConfig {
     pub label: String,
     pub disk: String,
 
-    #[serde(default = "default_disk_io_chart_height")]
+    #[serde(default = "default_chart_height")]
     pub height: u32,
-}
-
-fn default_disk_io_chart_height() -> u32 {
-    100
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,12 +70,16 @@ pub struct NetWidgetConfig {
     pub label: String,
     pub dev: String,
 
-    #[serde(default = "default_net_chart_height")]
+    #[serde(default = "default_chart_height")]
     pub height: u32,
 }
 
-fn default_net_chart_height() -> u32 {
-    100
+#[derive(Debug, Deserialize)]
+pub struct MemWidgetConfig {
+    pub label: String,
+
+    #[serde(default = "default_chart_height")]
+    pub height: u32,
 }
 
 fn parse_duration<'de, D>(deser: D) -> Result<Duration, D::Error>

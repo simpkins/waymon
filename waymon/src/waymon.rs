@@ -2,6 +2,7 @@ use crate::config::{Config, WidgetConfig};
 use crate::widgets::cpu::CpuWidget;
 use crate::widgets::disk_io::DiskIoWidget;
 use crate::widgets::net::NetWidget;
+use crate::widgets::mem::MemWidget;
 use crate::widgets::Widget;
 use anyhow::Result;
 use gtk::pango::EllipsizeMode;
@@ -155,6 +156,9 @@ impl Waymon {
                 }
                 WidgetConfig::Net(net) => {
                     NetWidget::new(container, net, &mut self.all_stats, history_length)
+                }
+                WidgetConfig::Mem(mem) => {
+                    MemWidget::new(container, mem, &mut self.all_stats, history_length)
                 }
             };
             self.widgets.push(widget);
