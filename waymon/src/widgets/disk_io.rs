@@ -90,12 +90,6 @@ impl Widget for DiskIoWidget {
             let ms_busy = Duration::from_millis((new.ms_doing_io - old.ms_doing_io) as u64);
             let delta_secs = s.time_delta().as_secs_f64();
             self.busy_fraction = ms_busy.as_secs_f64() / delta_secs;
-            eprintln!(
-                "{} disk usage: {:?} busy, {:?} total",
-                &self.disk,
-                ms_busy,
-                s.time_delta()
-            );
 
             let sectors_read = new.num_sectors_read - old.num_sectors_read;
             let sectors_written = new.num_sectors_written - old.num_sectors_written;

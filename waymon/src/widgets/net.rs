@@ -86,10 +86,6 @@ impl Widget for NetWidget {
             let tx_bytes = new.tx_bytes - old.tx_bytes;
             self.rx_Bps = (rx_bytes as f64) / delta_secs;
             self.tx_Bps = (tx_bytes as f64) / delta_secs;
-            eprintln!(
-                "{} net usage: {:?} Bps, {:?} Bps",
-                &self.dev, self.rx_Bps, self.tx_Bps
-            );
             self.chart.add_values(&[self.rx_Bps, self.tx_Bps])
         } else if self.dev_present {
             eprintln!("interface {} not present", &self.dev);

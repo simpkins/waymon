@@ -77,7 +77,6 @@ impl Widget for CpuWidget {
         let total_used = user + system + nice;
         let total = total_used + idle;
         self.usage_ratio = total_used / total;
-        eprintln!("CPU usage: {:.2}", self.usage_ratio * 100.0);
 
         let total_f64 = total.value() as f64;
         let nice_pct = 100.0 * (nice.value() as f64) / total_f64;
