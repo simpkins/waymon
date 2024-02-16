@@ -8,6 +8,7 @@ mod collectors;
 mod config;
 mod read;
 mod stats;
+mod util;
 mod waymon;
 mod widgets;
 

@@ -1,5 +1,6 @@
 use crate::collectors::diskstats::ProcDiskStats;
 use crate::collectors::procstat::ProcStat;
+use crate::collectors::net::NetDevStats;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -88,6 +89,7 @@ impl<T: StatType> StatsDeltaIntf for StatsDelta<T> {
 pub struct AllStats {
     proc_stats: Option<Rc<RefCell<StatsDelta<ProcStat>>>>,
     disk_stats: Option<Rc<RefCell<StatsDelta<ProcDiskStats>>>>,
+    net_stats: Option<Rc<RefCell<StatsDelta<NetDevStats>>>>,
 }
 
 impl AllStats {
@@ -95,6 +97,7 @@ impl AllStats {
         Self {
             proc_stats: None,
             disk_stats: None,
+            net_stats: None,
         }
     }
 
@@ -106,9 +109,14 @@ impl AllStats {
         Self::get_stat(&mut self.disk_stats)
     }
 
+    pub fn get_net_stats(&mut self) -> Rc<RefCell<StatsDelta<NetDevStats>>> {
+        Self::get_stat(&mut self.net_stats)
+    }
+
     pub fn update(&mut self, now: Instant) {
         Self::update_stat(&mut self.proc_stats, now);
         Self::update_stat(&mut self.disk_stats, now);
+        Self::update_stat(&mut self.net_stats, now);
     }
 
     fn get_stat<T: StatType>(

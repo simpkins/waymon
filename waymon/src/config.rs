@@ -38,6 +38,8 @@ pub enum WidgetConfig {
     Cpu(CpuWidgetConfig),
     #[serde(rename = "disk_io")]
     DiskIO(DiskIoWidgetConfig),
+    #[serde(rename = "net")]
+    Net(NetWidgetConfig),
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,6 +64,19 @@ pub struct DiskIoWidgetConfig {
 }
 
 fn default_disk_io_chart_height() -> u32 {
+    100
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NetWidgetConfig {
+    pub label: String,
+    pub dev: String,
+
+    #[serde(default = "default_net_chart_height")]
+    pub height: u32,
+}
+
+fn default_net_chart_height() -> u32 {
     100
 }
 

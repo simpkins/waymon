@@ -1,6 +1,7 @@
 use crate::collectors::diskstats::{ProcDiskStats, BYTES_PER_SECTOR};
 use crate::config::DiskIoWidgetConfig;
 use crate::stats::{AllStats, StatsDelta};
+use crate::util::humanify_f64;
 use crate::waymon::Waymon;
 use crate::widgets::timeseries::{Chart, ChartDrawCallback, StackedTimeseriesChart};
 use crate::widgets::Widget;
@@ -53,22 +54,6 @@ impl DiskIoWidget {
     }
 }
 
-fn humanify_f64(value: f64) -> String {
-    if value < 1000.0 {
-        return format!("{}B", value);
-    }
-    if value < 1_000_000.0 {
-        return format!("{}KB", (value as u64) / 1000);
-    }
-    if value < 1_000_000_000.0 {
-        return format!("{}MB", (value as u64) / 1_000_000);
-    }
-    if value < 1_000_000_000_000.0 {
-        return format!("{}GB", (value as u64) / 1_000_000_000);
-    }
-    return format!("{}TB", (value as u64) / 1_000_000_000_000);
-}
-
 impl ChartDrawCallback for DiskIoWidget {
     fn draw(&self, cr: &cairo::Context, width: i32, height: i32) {
         let max_value = self.chart.max_value();
@@ -84,8 +69,8 @@ impl ChartDrawCallback for DiskIoWidget {
                 "{}/s R\n{}/s W\n{:.0}% busy",
                 humanify_f64(self.read_Bps),
                 humanify_f64(self.write_Bps),
-                0.0
-            ); // self.busy_fraction * 100.0);
+                self.busy_fraction * 100.0
+            );
             Chart::draw_annotation(&self.da, cr, width, height, &annotation);
         } else {
             Chart::draw_annotation(&self.da, cr, width, height, "Not Present");
@@ -120,7 +105,7 @@ impl Widget for DiskIoWidget {
             self.write_Bps = (write_bytes as f64) / delta_secs;
             self.chart.add_values(&[self.read_Bps, self.write_Bps])
         } else if self.disk_present {
-            eprintln!("{} disk not present", &self.disk);
+            eprintln!("disk {} not present", &self.disk);
             self.disk_present = false;
             self.chart.add_values(&[0.0, 0.0]);
         }
