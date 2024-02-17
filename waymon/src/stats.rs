@@ -1,6 +1,7 @@
 use crate::collectors::diskstats::ProcDiskStats;
 use crate::collectors::meminfo::MemoryStats;
 use crate::collectors::net::NetDevStats;
+use crate::collectors::pressure::{CpuPressure, IoPressure, MemoryPressure};
 use crate::collectors::procstat::ProcStat;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -11,6 +12,8 @@ use thiserror::Error;
 pub enum StatsError {
     #[error("{0}")]
     IoError(#[from] std::io::Error),
+    #[error("parse error: {0}")]
+    ParseError(String),
 }
 
 pub trait StatType: Clone {
@@ -101,6 +104,9 @@ pub struct AllStats {
     disk_stats: Option<Rc<RefCell<StatsDelta<ProcDiskStats>>>>,
     net_stats: Option<Rc<RefCell<StatsDelta<NetDevStats>>>>,
     mem_stats: Option<Rc<RefCell<StatsDelta<MemoryStats>>>>,
+    cpu_pressure: Option<Rc<RefCell<StatsDelta<CpuPressure>>>>,
+    io_pressure: Option<Rc<RefCell<StatsDelta<IoPressure>>>>,
+    mem_pressure: Option<Rc<RefCell<StatsDelta<MemoryPressure>>>>,
 }
 
 impl AllStats {
@@ -122,6 +128,18 @@ impl AllStats {
 
     pub fn get_mem_stats(&mut self) -> Rc<RefCell<StatsDelta<MemoryStats>>> {
         Self::get_stat(&mut self.mem_stats)
+    }
+
+    pub fn get_cpu_pressure(&mut self) -> Rc<RefCell<StatsDelta<CpuPressure>>> {
+        Self::get_stat(&mut self.cpu_pressure)
+    }
+
+    pub fn get_io_pressure(&mut self) -> Rc<RefCell<StatsDelta<IoPressure>>> {
+        Self::get_stat(&mut self.io_pressure)
+    }
+
+    pub fn get_mem_pressure(&mut self) -> Rc<RefCell<StatsDelta<MemoryPressure>>> {
+        Self::get_stat(&mut self.mem_pressure)
     }
 
     pub fn update(&mut self, now: Instant) {
