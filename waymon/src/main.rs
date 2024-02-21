@@ -4,6 +4,7 @@ use gtk::glib;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+mod bar;
 mod collectors;
 mod config;
 mod read;
