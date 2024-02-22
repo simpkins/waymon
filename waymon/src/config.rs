@@ -2,18 +2,41 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Deserializer};
 use std::path::Path;
 use std::time::Duration;
+use std::collections::HashMap;
 
 const DEFAULT_WIDTH: u32 = 100;
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+    // Show the "primary" bar configuration on all monitors
+    Mirror,
+    // Show the "primary" bar config on one monitor only
+    // The monitor_rules will be used to select the primary monitor
+    Primary,
+    // Use the monitor 
+    PerMonitor,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_mode")]
+    pub mode: Mode,
     #[serde(default = "default_interval")]
     #[serde(deserialize_with = "parse_duration")]
     pub interval: Duration,
     #[serde(default = "default_width")]
     pub width: u32,
-    #[serde(default, rename = "widget")]
-    pub widgets: Vec<WidgetConfig>,
+    #[serde(default = "default_side")]
+    pub side: Side,
+    #[serde(default, rename = "monitor_rule")]
+    pub monitor_rules: Vec<MonitorRule>,
+    #[serde(default, rename = "bar")]
+    pub bars: HashMap<String, BarConfig>,
+}
+
+fn default_mode() -> Mode {
+    Mode::Mirror
 }
 
 fn default_interval() -> Duration {
@@ -24,11 +47,45 @@ fn default_width() -> u32 {
     DEFAULT_WIDTH
 }
 
+fn default_side() -> Side {
+    Side::Right
+}
+
 impl Config {
     pub fn load(path: &Path) -> Result<Config> {
         let config_contents = read_config_contents(path)?;
         toml::from_str::<Config>(&config_contents).with_context(|| format!("{}", path.display()))
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MonitorRule {
+    #[serde(default)]
+    pub connector: Option<String>,
+    #[serde(default)]
+    pub manufacturer: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    pub bar: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Side {
+    Right,
+    Left,
+    Top,
+    Bottom,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BarConfig {
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(default)]
+    pub side: Option<Side>,
+    #[serde(default, rename = "widget")]
+    pub widgets: Vec<WidgetConfig>,
 }
 
 #[derive(Debug, Deserialize)]

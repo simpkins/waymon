@@ -1,20 +1,34 @@
 use crate::bar::Bar;
-use crate::config::Config;
+use crate::config::{BarConfig, Config};
 use anyhow::Result;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 use gtk::{gdk, glib};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+enum MonitorState {
+    // This is a new monitor, and we are waiting for more information about it before we can
+    // decide what sort of bar should be displayed on this monitor.
+    Pending {
+        first_seen: Instant,
+        signal_handler: glib::SignalHandlerId,
+    },
+    // No bar is shown on this monitor.
+    NoBar,
+    // The bar being shown on this monitor.
+    Bar(Bar),
+}
 
 pub struct Waymon {
     pub display: gdk::Display,
     config_dir: PathBuf,
     pub config: Config,
     timeout_id: Option<glib::source::SourceId>,
-    bars: Vec<Bar>,
+    monitors: HashMap<gdk::Monitor, MonitorState>,
     pub all_stats: crate::stats::AllStats,
 }
 
@@ -44,7 +58,7 @@ impl Waymon {
             config_dir: config_dir.to_path_buf(),
             config: Config::load(&config_dir.join("config.toml"))?,
             timeout_id: None,
-            bars: Vec::new(),
+            monitors: HashMap::new(),
             all_stats: crate::stats::AllStats::new(),
         };
         Ok(waymon)
@@ -78,36 +92,12 @@ impl Waymon {
 
     fn create_bars(&mut self, rc: Rc<RefCell<Waymon>>) {
         let monitors = self.display.monitors();
-        let mut mon_idx = 0;
-        loop {
-            let mon = match monitors
-                .item(mon_idx)
-                .and_then(|mon_obj| mon_obj.downcast::<gdk::Monitor>().ok())
-            {
-                Some(m) => m,
-                None => break,
-            };
-
-            eprintln!(
-                "- monitor {}: conn={:?} model={:?} mfgr={:?}",
-                mon_idx,
-                mon.connector(),
-                mon.model(),
-                mon.manufacturer(),
-            );
-            let bar = Bar::new(self, &mon);
-            self.bars.push(bar);
-            mon_idx += 1;
-        }
-
+        let rc_clone = rc.clone();
         monitors.connect_items_changed(move |monitors, _position, _num_removed, _num_added| {
-            eprintln!(
-                "monitors notify: monitors={:?} pos={:?} num_removed={:?} num_added={:?}",
-                monitors, _position, _num_removed, _num_added
-            );
-            let mut waymon = rc.borrow_mut();
-            waymon.process_monitor_change();
+            let mut waymon = rc_clone.borrow_mut();
+            waymon.process_monitor_change(monitors, &rc_clone);
         });
+        self.process_monitor_change(&monitors, &rc);
     }
 
     pub fn add_widget_label(container: &gtk::Box, text: &str) {
@@ -152,19 +142,301 @@ impl Waymon {
 
     fn process_tick(&mut self) {
         let now = Instant::now();
+        const MONITOR_METADATA_TIMEOUT: Duration = Duration::from_secs(5);
         self.all_stats.update(now);
 
         // TODO: check if config file or css file has been updated,
         // and reload if needed
 
-        for bar in &self.bars {
-            bar.update();
+        let mut monitors_changed = false;
+        for (mon, mon_state) in self.monitors.iter_mut() {
+            match mon_state {
+                MonitorState::Pending {
+                    first_seen,
+                    signal_handler,
+                } => {
+                    // We are still waiting on metadata for this monitor to populate.
+                    // If it has been too long, time out and process the monitor with the metadata
+                    // we do have.
+                    if now > *first_seen + MONITOR_METADATA_TIMEOUT {
+                        eprintln!("timed out waiting for monitor metadata");
+                        Self::disconnect_monitor_notify(mon, mon_state);
+                        monitors_changed = true;
+                    }
+                }
+                MonitorState::Bar(bar) => bar.update(),
+                MonitorState::NoBar => (),
+            };
+        }
+
+        if monitors_changed {
+            self.configure_monitor_bars();
         }
     }
 
-    fn process_monitor_change(&mut self) {
-        eprintln!("process_monitor_change");
-        // TODO: update self.bars based on the new set of monitors
+    fn disconnect_monitor_notify(mon: &gdk::Monitor, mon_state: &mut MonitorState) {
+        let mut x = MonitorState::NoBar;
+        std::mem::swap(&mut x, mon_state);
+        if let MonitorState::Pending {
+            first_seen,
+            signal_handler,
+        } = x
+        {
+            mon.disconnect(signal_handler);
+        }
+    }
+
+    fn process_monitor_change(&mut self, monitors: &gtk::gio::ListModel, rc: &Rc<RefCell<Waymon>>) {
+        eprintln!("Monitor list changed");
+        let mut changes_made = self.clean_up_removed_monitors(monitors);
+        changes_made |= self.process_new_monitors(monitors, rc);
+        self.configure_monitor_bars();
+    }
+
+    fn clean_up_removed_monitors(&mut self, monitors: &gtk::gio::ListModel) -> bool {
+        // Delete bars whose windows are no longer mapped.
+        // This handles cleaning up bars for monitors that have been removed.
+        let old_size = self.monitors.len();
+        self.monitors
+            .retain(|mon, mon_state| Self::is_monitor_still_present(mon, mon_state, monitors));
+        /*
+        self.monitors.retain(|mon, mon_state| match mon_state {
+            MonitorState::Bar(bar) => {
+                if bar.window.is_mapped() {
+                    true
+                } else {
+                    eprintln!(
+                        "- unmapped bar on {:?} {:?}",
+                        mon.manufacturer(),
+                        mon.model()
+                    );
+                    false
+                }
+            }
+            _ => {
+                let present = Self::is_monitor_in_list(mon, monitors);
+                if !present {
+                    eprintln!(
+                        "- removed monitor {:?} {:?}",
+                        mon.manufacturer(),
+                        mon.model()
+                    );
+                }
+                present
+            }
+        });
+        */
+        old_size == self.monitors.len()
+    }
+
+    fn is_monitor_still_present(
+        mon: &gdk::Monitor,
+        mon_state: &mut MonitorState,
+        monitors: &gtk::gio::ListModel,
+    ) -> bool {
+        // We could check mon.is_valid(), but unfortunately this property is not updated until
+        // after the monitor is removed from the list, so it still returns true here even for
+        // removed monitors.
+        //
+        // The monitor's bar gets unmapped when the monitor is removed, so if a bar was present on
+        // the monitor, checking bar.window.is_mapped() is a good way to detect if a monitor has
+        // been removed.  However, this only works we had a bar on this monitor.
+        //
+        // Therefore we check is_monitor_in_list(), even though this requires a linear scan.
+        let present = Self::is_monitor_in_list(mon, monitors);
+        if !present {
+            eprintln!(
+                "<- monitor removed: {:?} {:?}",
+                mon.manufacturer(),
+                mon.model()
+            );
+            if let MonitorState::Pending {
+                first_seen,
+                signal_handler,
+            } = mon_state
+            {
+                Self::disconnect_monitor_notify(mon, mon_state);
+            }
+        }
+        present
+    }
+
+    fn is_monitor_in_list(to_find: &gdk::Monitor, monitors: &gtk::gio::ListModel) -> bool {
+        for mon_result in monitors.iter::<gdk::Monitor>() {
+            let mon = match mon_result {
+                Ok(mon) => mon,
+                Err(_) => {
+                    return false;
+                }
+            };
+            if mon == *to_find {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn process_new_monitors(
+        &mut self,
+        monitors: &gtk::gio::ListModel,
+        my_rc: &Rc<RefCell<Waymon>>,
+    ) -> bool {
+        let mut changes_made = false;
+        for mon_result in monitors.iter::<gdk::Monitor>() {
+            let mon = match mon_result {
+                Ok(mon) => mon,
+                Err(_) => {
+                    // The only error that can occur here is ListModelMutatedDuringIter
+                    // If the list is mutated while we are iterating over it,
+                    // process_monitor_change will be called again and we will examine the whole
+                    // monitor list again from the start.  Return here, and let the next
+                    // process_monitor_change() finish any remaining work.
+                    return changes_made;
+                }
+            };
+
+            if let Some(_) = self.monitors.get(&mon) {
+                // TODO: perhaps make sure the bar is using up-to-date configuration info?
+                eprintln!("-- existing monitor {:?}", mon.connector());
+                continue;
+            }
+
+            if Self::is_all_monitor_metadata_present(&mon) {
+                // We set the state to NoBar for now.
+                // Afterwards we will process all monitors and decide the correct bar configuration
+                // for each one.
+                self.monitors.insert(mon, MonitorState::NoBar);
+                changes_made = true;
+            } else {
+                // We don't have the metadata for this monitor yet.
+                // GTK unfortunately reports new monitors before it has the metadata,
+                // so we have to wait until the metadata is available before we can process this.
+                let rc_clone = my_rc.clone();
+                let handler_id = mon.connect_notify_local(None, move |mon_obj, param_spec| {
+                    eprintln!(
+                        "monitor connector notify: {:?} name={:?} nick={:?}",
+                        mon_obj.connector(),
+                        param_spec.name(),
+                        param_spec.nick()
+                    );
+                    if Self::is_all_monitor_metadata_present(mon_obj) {
+                        let mut waymon = rc_clone.borrow_mut();
+                        waymon.monitor_metadata_ready(mon_obj);
+                    }
+                });
+                self.monitors.insert(
+                    mon,
+                    MonitorState::Pending {
+                        first_seen: Instant::now(),
+                        signal_handler: handler_id,
+                    },
+                );
+            }
+        }
+
+        changes_made
+    }
+
+    fn is_all_monitor_metadata_present(mon: &gdk::Monitor) -> bool {
+        mon.connector().is_some() && mon.manufacturer().is_some() && mon.model().is_some()
+    }
+
+    fn monitor_metadata_ready(&mut self, mon: &gdk::Monitor) {
+        eprintln!("all metadata ready for new monitor");
+        if let Some(mon_state) = self.monitors.get_mut(mon) {
+            if let MonitorState::Pending {
+                first_seen,
+                signal_handler,
+            } = mon_state
+            {
+                Self::disconnect_monitor_notify(mon, mon_state);
+                self.monitors.insert(mon.clone(), MonitorState::NoBar);
+            }
+        } else {
+            self.monitors.insert(mon.clone(), MonitorState::NoBar);
+        }
+        self.configure_monitor_bars();
+    }
+
+    fn configure_monitor_bars(&mut self) {
+        match self.config.mode {
+            crate::config::Mode::Mirror => self.configure_monitors_mirrored(),
+            crate::config::Mode::Primary => self.configure_monitors_primary(),
+            crate::config::Mode::PerMonitor => self.configure_monitors_per_monitor(),
+        }
+    }
+
+    fn configure_monitors_mirrored(&mut self) {
+        // TODO: we perhaps should have a real fallback config with a basic set of widgets
+        let fallback_config =
+            toml::from_str::<BarConfig>("").expect("deserialization of literal should not fail");
+        let primary_config = self.config.bars.get("primary").unwrap_or_else(|| {
+            eprintln!("no widgets defined for the primary bar!");
+            &fallback_config
+        });
+
+        // Make sure a bar exists for every monitor
+        for (mon, mon_state) in self.monitors.iter_mut() {
+            match mon_state {
+                MonitorState::Pending {
+                    first_seen,
+                    signal_handler,
+                } => {
+                    // Ignore monitors that don't have all metadata yet
+                }
+                MonitorState::Bar(bar) => {
+                    // TODO
+                    // bar.ensure_config(primary_config, self.config.width);
+                }
+                MonitorState::NoBar => {
+                    let bar = Bar::new(
+                        mon.clone(),
+                        primary_config,
+                        self.config.width,
+                        &mut self.all_stats,
+                    );
+                    eprintln!(
+                        "add bar for monitor {:?} {:?}",
+                        mon.manufacturer(),
+                        mon.model()
+                    );
+                    *mon_state = MonitorState::Bar(bar);
+                }
+            }
+        }
+    }
+
+    fn configure_monitors_primary(&mut self) {
+        /*
+        let primary_mon = self.pick_primary_monitor();
+        let primary_config = self.get_primary_bar_config();
+
+        for (mon, mon_info) in &self.monitors {
+            if let Some(_) = mon_info.signal_handler {
+                // We are still waiting on metadata for this monitor to populate
+                continue;
+            }
+            if mon == primary_mon {
+                mon_info.ensure_bar_config(primary_config);
+            } else {
+                mon_info.ensure_bar_config(None);
+            }
+        }
+        */
+    }
+
+    fn configure_monitors_per_monitor(&mut self) {
+        /*
+            for (mon, mon_info) in &self.monitors {
+                if let Some(_) = mon_info.signal_handler {
+                    // We are still waiting on metadata for this monitor to populate
+                    continue;
+                }
+
+                let config_opt = self.pick_monitor_config(mon, mon_info);
+                mon_info.ensure_bar_config(config_opt);
+            }
+        */
     }
 }
 
