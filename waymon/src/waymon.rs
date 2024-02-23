@@ -13,14 +13,41 @@ use std::time::{Duration, Instant};
 enum MonitorState {
     // This is a new monitor, and we are waiting for more information about it before we can
     // decide what sort of bar should be displayed on this monitor.
-    Pending {
-        first_seen: Instant,
-        signal_handler: glib::SignalHandlerId,
-    },
+    Pending(PendingMonitor),
     // No bar is shown on this monitor.
     NoBar,
     // The bar being shown on this monitor.
     Bar(Bar),
+}
+
+struct PendingMonitor {
+    mon: gdk::Monitor,
+    first_seen: Instant,
+    signal_handler: Option<glib::SignalHandlerId>,
+}
+
+impl PendingMonitor {
+    fn new(mon: gdk::Monitor, handler_id: glib::SignalHandlerId) -> Self {
+        Self {
+            mon: mon,
+            first_seen: Instant::now(),
+            signal_handler: Some(handler_id),
+        }
+    }
+
+    fn is_timed_out(&self, now: &Instant) -> bool {
+        const MONITOR_METADATA_TIMEOUT: Duration = Duration::from_secs(5);
+        *now > self.first_seen + MONITOR_METADATA_TIMEOUT
+    }
+}
+
+impl Drop for PendingMonitor {
+    fn drop(&mut self) {
+        // Remove the monitor metadata callback once we have stopped waiting on this monitor
+        if let Some(sh) = std::mem::take(&mut self.signal_handler) {
+            self.mon.disconnect(sh);
+        }
+    }
 }
 
 pub struct Waymon {
@@ -142,7 +169,6 @@ impl Waymon {
 
     fn process_tick(&mut self) {
         let now = Instant::now();
-        const MONITOR_METADATA_TIMEOUT: Duration = Duration::from_secs(5);
         self.all_stats.update(now);
 
         // TODO: check if config file or css file has been updated,
@@ -151,16 +177,13 @@ impl Waymon {
         let mut monitors_changed = false;
         for (mon, mon_state) in self.monitors.iter_mut() {
             match mon_state {
-                MonitorState::Pending {
-                    first_seen,
-                    signal_handler,
-                } => {
+                MonitorState::Pending(pm) => {
                     // We are still waiting on metadata for this monitor to populate.
                     // If it has been too long, time out and process the monitor with the metadata
                     // we do have.
-                    if now > *first_seen + MONITOR_METADATA_TIMEOUT {
+                    if pm.is_timed_out(&now) {
                         eprintln!("timed out waiting for monitor metadata");
-                        Self::disconnect_monitor_notify(mon, mon_state);
+                        *mon_state = MonitorState::NoBar;
                         monitors_changed = true;
                     }
                 }
@@ -171,18 +194,6 @@ impl Waymon {
 
         if monitors_changed {
             self.configure_monitor_bars();
-        }
-    }
-
-    fn disconnect_monitor_notify(mon: &gdk::Monitor, mon_state: &mut MonitorState) {
-        let mut x = MonitorState::NoBar;
-        std::mem::swap(&mut x, mon_state);
-        if let MonitorState::Pending {
-            first_seen,
-            signal_handler,
-        } = x
-        {
-            mon.disconnect(signal_handler);
         }
     }
 
@@ -250,12 +261,8 @@ impl Waymon {
                 mon.manufacturer(),
                 mon.model()
             );
-            if let MonitorState::Pending {
-                first_seen,
-                signal_handler,
-            } = mon_state
-            {
-                Self::disconnect_monitor_notify(mon, mon_state);
+            if let MonitorState::Pending(_) = mon_state {
+                *mon_state = MonitorState::NoBar;
             }
         }
         present
@@ -313,23 +320,15 @@ impl Waymon {
                 // so we have to wait until the metadata is available before we can process this.
                 let rc_clone = my_rc.clone();
                 let handler_id = mon.connect_notify_local(None, move |mon_obj, param_spec| {
-                    eprintln!(
-                        "monitor connector notify: {:?} name={:?} nick={:?}",
-                        mon_obj.connector(),
-                        param_spec.name(),
-                        param_spec.nick()
-                    );
                     if Self::is_all_monitor_metadata_present(mon_obj) {
                         let mut waymon = rc_clone.borrow_mut();
                         waymon.monitor_metadata_ready(mon_obj);
                     }
                 });
+                let mon2 = mon.clone();
                 self.monitors.insert(
                     mon,
-                    MonitorState::Pending {
-                        first_seen: Instant::now(),
-                        signal_handler: handler_id,
-                    },
+                    MonitorState::Pending(PendingMonitor::new(mon2, handler_id)),
                 );
             }
         }
@@ -342,14 +341,13 @@ impl Waymon {
     }
 
     fn monitor_metadata_ready(&mut self, mon: &gdk::Monitor) {
-        eprintln!("all metadata ready for new monitor");
+        // In theory we presumably only get here if we have a Pending entry for this monitor.
+        // We want to replace that with a NoBar entry.  Just to be safe, check to see what
+        // information we have, and don't replace an existing entry if we somehow already have a
+        // bar present on this monitor.
+        eprintln!("all metadata ready for monitor {:?} {:?}", mon.manufacturer(), mon.model());
         if let Some(mon_state) = self.monitors.get_mut(mon) {
-            if let MonitorState::Pending {
-                first_seen,
-                signal_handler,
-            } = mon_state
-            {
-                Self::disconnect_monitor_notify(mon, mon_state);
+            if let MonitorState::Pending(_) = mon_state {
                 self.monitors.insert(mon.clone(), MonitorState::NoBar);
             }
         } else {
@@ -378,10 +376,7 @@ impl Waymon {
         // Make sure a bar exists for every monitor
         for (mon, mon_state) in self.monitors.iter_mut() {
             match mon_state {
-                MonitorState::Pending {
-                    first_seen,
-                    signal_handler,
-                } => {
+                MonitorState::Pending(_) => {
                     // Ignore monitors that don't have all metadata yet
                 }
                 MonitorState::Bar(bar) => {
