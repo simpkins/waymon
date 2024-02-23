@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Deserializer};
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
-use std::collections::HashMap;
 
 const DEFAULT_WIDTH: u32 = 100;
+const DEFAULT_SIDE: Side = Side::Right;
+const PRIMARY_BAR_NAME: &str = "primary";
+const NO_BAR_NAME: &str = "none";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -14,12 +17,27 @@ pub enum Mode {
     // Show the "primary" bar config on one monitor only
     // The monitor_rules will be used to select the primary monitor
     Primary,
-    // Use the monitor 
+    // Use the monitor
     PerMonitor,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct Config {
+    pub mode: Mode,
+    pub interval: Duration,
+    pub monitor_rules: Vec<MonitorRule>,
+    pub bars: HashMap<String, BarConfig>,
+}
+
+impl Config {
+    pub fn primary_bar<'a>(&'a self) -> &'a BarConfig {
+        // TomlConfig.to_config() should ensure that there is always a primary config entry
+        self.bars.get(PRIMARY_BAR_NAME).unwrap()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TomlConfig {
     #[serde(default = "default_mode")]
     pub mode: Mode,
     #[serde(default = "default_interval")]
@@ -32,7 +50,80 @@ pub struct Config {
     #[serde(default, rename = "monitor_rule")]
     pub monitor_rules: Vec<MonitorRule>,
     #[serde(default, rename = "bar")]
-    pub bars: HashMap<String, BarConfig>,
+    pub bars: HashMap<String, TomlBarConfig>,
+    #[serde(default, rename = "widget")]
+    pub widgets: Vec<WidgetConfig>,
+}
+
+impl TomlConfig {
+    fn to_config(mut self) -> Result<Config> {
+        // Ensure that a primary bar config exists
+        // For convenience we also let widgets for the primary config be specified at the top-level
+        // of the config file.  Bail out with an error if the user specified widgets both at the
+        // top level and in an explicity "primary" bar config.
+        if let Some(bc) = self.bars.get_mut(PRIMARY_BAR_NAME) {
+            if !self.widgets.is_empty() {
+                if !bc.widgets.is_empty() {
+                    return Err(anyhow!(
+                        "primary bar widgets specified both as [[widget]] and \
+                        [[bar.primary.widget]].  Choose one config style or the other, not both"
+                    ));
+                }
+                bc.widgets = self.widgets
+            }
+        } else if !self.widgets.is_empty() {
+            self.bars.insert(
+                PRIMARY_BAR_NAME.to_string(),
+                TomlBarConfig {
+                    widgets: self.widgets,
+                    ..Default::default()
+                },
+            );
+        } else {
+            self.bars.insert(
+                PRIMARY_BAR_NAME.to_string(),
+                TomlBarConfig {
+                    widgets: default_widgets(),
+                    ..Default::default()
+                },
+            );
+        }
+
+        // Convert the bar configs
+        let mut bars: HashMap<String, BarConfig> = self
+            .bars
+            .drain()
+            .map(|(name, bc)| (name, bc.to_config(self.width, self.side)))
+            .collect();
+        if bars.contains_key(NO_BAR_NAME) {
+            return Err(anyhow!(
+                "invalid bar name {}: this name is reserved",
+                NO_BAR_NAME
+            ));
+        }
+
+        Ok(Config {
+            mode: self.mode,
+            interval: self.interval,
+            monitor_rules: self.monitor_rules,
+            bars: bars,
+        })
+    }
+}
+
+fn default_widgets() -> Vec<WidgetConfig> {
+    // Provide a default set of widgets so that the bar isn't completely empty by default
+    // if the config file is empty.
+    vec![
+        WidgetConfig::Cpu(CpuWidgetConfig {
+            label: "CPU".to_string(),
+            height: default_chart_height(),
+        }),
+        WidgetConfig::Mem(MemWidgetConfig {
+            label: "Memory".to_string(),
+            height: default_chart_height(),
+        }),
+    ]
 }
 
 fn default_mode() -> Mode {
@@ -48,13 +139,15 @@ fn default_width() -> u32 {
 }
 
 fn default_side() -> Side {
-    Side::Right
+    DEFAULT_SIDE
 }
 
 impl Config {
     pub fn load(path: &Path) -> Result<Config> {
         let config_contents = read_config_contents(path)?;
-        toml::from_str::<Config>(&config_contents).with_context(|| format!("{}", path.display()))
+        let toml_config = toml::from_str::<TomlConfig>(&config_contents)
+            .with_context(|| format!("{}", path.display()))?;
+        toml_config.to_config()
     }
 }
 
@@ -69,7 +162,7 @@ pub struct MonitorRule {
     pub bar: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Side {
     Right,
@@ -78,14 +171,31 @@ pub enum Side {
     Bottom,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct BarConfig {
+    pub width: u32,
+    pub side: Side,
+    pub widgets: Vec<WidgetConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct TomlBarConfig {
     #[serde(default)]
     pub width: Option<u32>,
     #[serde(default)]
     pub side: Option<Side>,
     #[serde(default, rename = "widget")]
     pub widgets: Vec<WidgetConfig>,
+}
+
+impl TomlBarConfig {
+    fn to_config(mut self, default_width: u32, default_side: Side) -> BarConfig {
+        BarConfig {
+            width: self.width.unwrap_or(default_width),
+            side: self.side.unwrap_or(default_side),
+            widgets: self.widgets,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

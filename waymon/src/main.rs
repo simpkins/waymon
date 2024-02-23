@@ -39,7 +39,6 @@ fn main() -> anyhow::Result<()> {
     let waymon = match waymon::WaymonState::new(&config_dir) {
         Ok(waymon) => waymon,
         Err(err) => {
-            eprintln!("initialization error: {:#}", err);
             return Err(anyhow!("initialization error: {:#}", err));
         }
     };

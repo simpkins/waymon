@@ -312,7 +312,11 @@ impl Waymon {
         // We want to replace that with a NoBar entry.  Just to be safe, check to see what
         // information we have, and don't replace an existing entry if we somehow already have a
         // bar present on this monitor.
-        eprintln!("all metadata ready for monitor {:?} {:?}", mon.manufacturer(), mon.model());
+        eprintln!(
+            "all metadata ready for monitor {:?} {:?}",
+            mon.manufacturer(),
+            mon.model()
+        );
         if let Some(mon_state) = self.monitors.get_mut(mon) {
             if let MonitorState::Pending(_) = mon_state {
                 self.monitors.insert(mon.clone(), MonitorState::NoBar);
@@ -335,13 +339,7 @@ impl Waymon {
     }
 
     fn configure_monitors_mirrored(&mut self) {
-        // TODO: we perhaps should have a real fallback config with a basic set of widgets
-        let fallback_config =
-            toml::from_str::<BarConfig>("").expect("deserialization of literal should not fail");
-        let primary_config = self.config.bars.get("primary").unwrap_or_else(|| {
-            eprintln!("no widgets defined for the primary bar!");
-            &fallback_config
-        });
+        let primary_config = self.config.primary_bar();
 
         // Make sure a bar exists for every monitor
         for (mon, mon_state) in self.monitors.iter_mut() {
@@ -354,12 +352,7 @@ impl Waymon {
                     // bar.ensure_config(primary_config, self.config.width);
                 }
                 MonitorState::NoBar => {
-                    let bar = Bar::new(
-                        mon.clone(),
-                        primary_config,
-                        self.config.width,
-                        &mut self.all_stats,
-                    );
+                    let bar = Bar::new(mon.clone(), primary_config, &mut self.all_stats);
                     eprintln!(
                         "add bar for monitor {:?} {:?}",
                         mon.manufacturer(),
