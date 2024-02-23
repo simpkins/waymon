@@ -46,6 +46,11 @@ impl Bar {
         bar
     }
 
+    pub fn ensure_config(&mut self, _config: &BarConfig) {
+        // TODO: reconfigure the bar if needed
+        eprintln!("TODO: update bar config");
+    }
+
     fn create_window(&mut self, config: &BarConfig, all_stats: &mut AllStats) {
         // Configure the window as a layer surface
         self.window.init_layer_shell();
@@ -114,5 +119,16 @@ impl Bar {
             let mut w = w_rc.borrow_mut();
             w.update();
         }
+    }
+}
+
+impl Drop for Bar {
+    fn drop(&mut self) {
+        eprintln!(
+            "bar for monitor {:?} {:?} dropped",
+            self.monitor.manufacturer(),
+            self.monitor.model()
+        );
+        self.window.destroy()
     }
 }

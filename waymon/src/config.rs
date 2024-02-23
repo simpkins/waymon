@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Context, Result};
+use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::path::Path;
@@ -7,7 +8,7 @@ use std::time::Duration;
 const DEFAULT_WIDTH: u32 = 100;
 const DEFAULT_SIDE: Side = Side::Right;
 const PRIMARY_BAR_NAME: &str = "primary";
-const NO_BAR_NAME: &str = "none";
+pub const NO_BAR_NAME: &str = "none";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -48,7 +49,7 @@ pub struct TomlConfig {
     #[serde(default = "default_side")]
     pub side: Side,
     #[serde(default, rename = "monitor_rule")]
-    pub monitor_rules: Vec<MonitorRule>,
+    pub monitor_rules: Vec<TomlMonitorRule>,
     #[serde(default, rename = "bar")]
     pub bars: HashMap<String, TomlBarConfig>,
     #[serde(default, rename = "widget")]
@@ -90,7 +91,7 @@ impl TomlConfig {
         }
 
         // Convert the bar configs
-        let mut bars: HashMap<String, BarConfig> = self
+        let bars: HashMap<String, BarConfig> = self
             .bars
             .drain()
             .map(|(name, bc)| (name, bc.to_config(self.width, self.side)))
@@ -105,9 +106,42 @@ impl TomlConfig {
         Ok(Config {
             mode: self.mode,
             interval: self.interval,
-            monitor_rules: self.monitor_rules,
+            monitor_rules: Self::convert_monitor_rules(&mut self.monitor_rules, &bars)?,
             bars: bars,
         })
+    }
+
+    fn convert_monitor_rules(
+        toml_rules: &mut Vec<TomlMonitorRule>,
+        bars: &HashMap<String, BarConfig>,
+    ) -> Result<Vec<MonitorRule>> {
+        let parse_regex = |s: Option<String>| -> Result<Regex> {
+            s.map_or(Ok(Regex::new(".*")?), |s| Ok(Regex::new(&s)?))
+        };
+
+        let mut result = Vec::new();
+        for rule in toml_rules.drain(..) {
+            if let Some(bar_name) = &rule.bar {
+                // Check validity of the bar config name
+                if bar_name != NO_BAR_NAME && bar_name != PRIMARY_BAR_NAME {
+                    if !bars.contains_key(bar_name) {
+                        return Err(anyhow!(
+                            "monitor rule contains unknown bar name {:?}",
+                            bar_name
+                        ));
+                    }
+                }
+            }
+
+            let out_rule = MonitorRule {
+                connector: parse_regex(rule.connector)?,
+                manufacturer: parse_regex(rule.manufacturer)?,
+                model: parse_regex(rule.model)?,
+                bar: rule.bar,
+            };
+            result.push(out_rule);
+        }
+        Ok(result)
     }
 }
 
@@ -151,15 +185,23 @@ impl Config {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 pub struct MonitorRule {
+    pub connector: Regex,
+    pub manufacturer: Regex,
+    pub model: Regex,
+    pub bar: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TomlMonitorRule {
     #[serde(default)]
     pub connector: Option<String>,
     #[serde(default)]
     pub manufacturer: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
-    pub bar: String,
+    pub bar: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, Deserialize)]
@@ -189,7 +231,7 @@ pub struct TomlBarConfig {
 }
 
 impl TomlBarConfig {
-    fn to_config(mut self, default_width: u32, default_side: Side) -> BarConfig {
+    fn to_config(self, default_width: u32, default_side: Side) -> BarConfig {
         BarConfig {
             width: self.width.unwrap_or(default_width),
             side: self.side.unwrap_or(default_side),

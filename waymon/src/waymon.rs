@@ -1,11 +1,12 @@
 use crate::bar::Bar;
-use crate::config::{BarConfig, Config};
+use crate::config::{BarConfig, Config, MonitorRule, NO_BAR_NAME};
+use crate::stats::AllStats;
 use anyhow::Result;
 use gtk::pango::EllipsizeMode;
 use gtk::prelude::*;
 use gtk::{gdk, glib};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -19,7 +20,7 @@ pub struct Waymon {
     pub config: Config,
     timeout_id: Option<glib::source::SourceId>,
     monitors: HashMap<gdk::Monitor, MonitorState>,
-    pub all_stats: crate::stats::AllStats,
+    pub all_stats: AllStats,
 }
 
 /**
@@ -52,7 +53,7 @@ impl Waymon {
             config: Config::load(&config_dir.join("config.toml"))?,
             timeout_id: None,
             monitors: HashMap::new(),
-            all_stats: crate::stats::AllStats::new(),
+            all_stats: AllStats::new(),
         };
         Ok(waymon)
     }
@@ -142,7 +143,7 @@ impl Waymon {
 
         // Update the bars on all monitors
         let mut monitors_changed = false;
-        for (mon, mon_state) in self.monitors.iter_mut() {
+        for (_mon, mon_state) in self.monitors.iter_mut() {
             match mon_state {
                 MonitorState::Pending(pm) => {
                     // We are still waiting on metadata for this monitor to populate.
@@ -168,7 +169,9 @@ impl Waymon {
         eprintln!("Monitor list changed");
         let mut changes_made = self.clean_up_removed_monitors(monitors);
         changes_made |= self.process_new_monitors(monitors, rc);
-        self.configure_monitor_bars();
+        if changes_made {
+            self.configure_monitor_bars();
+        }
     }
 
     fn clean_up_removed_monitors(&mut self, monitors: &gtk::gio::ListModel) -> bool {
@@ -176,42 +179,11 @@ impl Waymon {
         // This handles cleaning up bars for monitors that have been removed.
         let old_size = self.monitors.len();
         self.monitors
-            .retain(|mon, mon_state| Self::is_monitor_still_present(mon, mon_state, monitors));
-        /*
-        self.monitors.retain(|mon, mon_state| match mon_state {
-            MonitorState::Bar(bar) => {
-                if bar.window.is_mapped() {
-                    true
-                } else {
-                    eprintln!(
-                        "- unmapped bar on {:?} {:?}",
-                        mon.manufacturer(),
-                        mon.model()
-                    );
-                    false
-                }
-            }
-            _ => {
-                let present = Self::is_monitor_in_list(mon, monitors);
-                if !present {
-                    eprintln!(
-                        "- removed monitor {:?} {:?}",
-                        mon.manufacturer(),
-                        mon.model()
-                    );
-                }
-                present
-            }
-        });
-        */
-        old_size == self.monitors.len()
+            .retain(|mon, _mon_state| Self::is_monitor_still_present(mon, monitors));
+        old_size != self.monitors.len()
     }
 
-    fn is_monitor_still_present(
-        mon: &gdk::Monitor,
-        mon_state: &mut MonitorState,
-        monitors: &gtk::gio::ListModel,
-    ) -> bool {
+    fn is_monitor_still_present(mon: &gdk::Monitor, monitors: &gtk::gio::ListModel) -> bool {
         // We could check mon.is_valid(), but unfortunately this property is not updated until
         // after the monitor is removed from the list, so it still returns true here even for
         // removed monitors.
@@ -223,14 +195,12 @@ impl Waymon {
         // Therefore we check is_monitor_in_list(), even though this requires a linear scan.
         let present = Self::is_monitor_in_list(mon, monitors);
         if !present {
-            eprintln!(
-                "<- monitor removed: {:?} {:?}",
-                mon.manufacturer(),
-                mon.model()
-            );
-            if let MonitorState::Pending(_) = mon_state {
-                *mon_state = MonitorState::NoBar;
-            }
+            eprintln!("<- monitor removed: {}", monitor_desc(mon));
+            /*
+                if let MonitorState::Pending(_) = mon_state {
+                    *mon_state = MonitorState::NoBar;
+                }
+            */
         }
         present
     }
@@ -271,7 +241,7 @@ impl Waymon {
 
             if let Some(_) = self.monitors.get(&mon) {
                 // TODO: perhaps make sure the bar is using up-to-date configuration info?
-                eprintln!("-- existing monitor {:?}", mon.connector());
+                eprintln!("-- existing monitor {}", monitor_desc(&mon));
                 continue;
             }
 
@@ -286,7 +256,7 @@ impl Waymon {
                 // GTK unfortunately reports new monitors before it has the metadata,
                 // so we have to wait until the metadata is available before we can process this.
                 let rc_clone = my_rc.clone();
-                let handler_id = mon.connect_notify_local(None, move |mon_obj, param_spec| {
+                let handler_id = mon.connect_notify_local(None, move |mon_obj, _param_spec| {
                     if Self::is_all_monitor_metadata_present(mon_obj) {
                         let mut waymon = rc_clone.borrow_mut();
                         waymon.monitor_metadata_ready(mon_obj);
@@ -312,11 +282,7 @@ impl Waymon {
         // We want to replace that with a NoBar entry.  Just to be safe, check to see what
         // information we have, and don't replace an existing entry if we somehow already have a
         // bar present on this monitor.
-        eprintln!(
-            "all metadata ready for monitor {:?} {:?}",
-            mon.manufacturer(),
-            mon.model()
-        );
+        eprintln!("--> new monitor {}", monitor_desc(mon));
         if let Some(mon_state) = self.monitors.get_mut(mon) {
             if let MonitorState::Pending(_) = mon_state {
                 self.monitors.insert(mon.clone(), MonitorState::NoBar);
@@ -343,21 +309,34 @@ impl Waymon {
 
         // Make sure a bar exists for every monitor
         for (mon, mon_state) in self.monitors.iter_mut() {
-            match mon_state {
-                MonitorState::Pending(_) => {
-                    // Ignore monitors that don't have all metadata yet
+            Self::ensure_bar_config(mon, mon_state, Some(primary_config), &mut self.all_stats);
+        }
+    }
+
+    fn ensure_bar_config(
+        mon: &gdk::Monitor,
+        mon_state: &mut MonitorState,
+        config: Option<&BarConfig>,
+        all_stats: &mut AllStats,
+    ) {
+        match mon_state {
+            MonitorState::Pending(_) => {
+                // We generally shouldn't be trying to configure a bar on a monitor that is still
+                // waiting on metadata to populate
+                eprintln!("attempted to configure bar on pending monitor");
+            }
+            MonitorState::Bar(bar) => {
+                if let Some(bar_config) = config {
+                    bar.ensure_config(bar_config);
+                } else {
+                    // Clear the state.  The Bar drop() function will destroy the window.
+                    *mon_state = MonitorState::NoBar;
                 }
-                MonitorState::Bar(bar) => {
-                    // TODO
-                    // bar.ensure_config(primary_config, self.config.width);
-                }
-                MonitorState::NoBar => {
-                    let bar = Bar::new(mon.clone(), primary_config, &mut self.all_stats);
-                    eprintln!(
-                        "add bar for monitor {:?} {:?}",
-                        mon.manufacturer(),
-                        mon.model()
-                    );
+            }
+            MonitorState::NoBar => {
+                if let Some(bar_config) = config {
+                    eprintln!("add bar for monitor {}", monitor_desc(mon));
+                    let bar = Bar::new(mon.clone(), bar_config, all_stats);
                     *mon_state = MonitorState::Bar(bar);
                 }
             }
@@ -365,36 +344,134 @@ impl Waymon {
     }
 
     fn configure_monitors_primary(&mut self) {
-        /*
         let primary_mon = self.pick_primary_monitor();
-        let primary_config = self.get_primary_bar_config();
+        let primary_config = self.config.primary_bar();
 
-        for (mon, mon_info) in &self.monitors {
-            if let Some(_) = mon_info.signal_handler {
-                // We are still waiting on metadata for this monitor to populate
-                continue;
-            }
-            if mon == primary_mon {
-                mon_info.ensure_bar_config(primary_config);
+        for (mon, mon_state) in self.monitors.iter_mut() {
+            if Some(mon) == primary_mon.as_ref() {
+                Self::ensure_bar_config(mon, mon_state, Some(primary_config), &mut self.all_stats);
             } else {
-                mon_info.ensure_bar_config(None);
+                Self::ensure_bar_config(mon, mon_state, None, &mut self.all_stats);
             }
         }
-        */
+    }
+
+    fn pick_primary_monitor(&self) -> Option<gdk::Monitor> {
+        let mut excluded_monitors = HashSet::<gdk::Monitor>::new();
+
+        for rule in &self.config.monitor_rules {
+            for mon in self.monitors.keys() {
+                if excluded_monitors.contains(mon) {
+                    continue;
+                }
+                if Self::is_rule_match(rule, mon) {
+                    if let Some(bar_name) = &rule.bar {
+                        if bar_name == NO_BAR_NAME {
+                            // This monitor should be excluded from consideration
+                            excluded_monitors.insert(mon.clone());
+                        } else {
+                            eprintln!("preferred primary monitor: {}", monitor_desc(mon));
+                            return Some(mon.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // No rules matched.
+        // If one monitor already contains a bar, prefer using it rather than switching
+        // the primary monitor to a different monitor.  Otherwise just return the first
+        // non-excluded monitor, if there is one.
+        let mut preferred: Option<&gdk::Monitor> = None;
+        for (mon, mon_state) in &self.monitors {
+            if excluded_monitors.contains(mon) {
+                continue;
+            }
+            if let MonitorState::Bar(_) = mon_state {
+                eprintln!(
+                    "no matching preferred primary monitor, keeping current on: {}",
+                    monitor_desc(mon)
+                );
+                return Some(mon.clone());
+            } else if let None = preferred {
+                preferred = Some(mon);
+            }
+        }
+        eprintln!(
+            "no matching preferred primary monitor, using: {}",
+            preferred.map_or_else(|| "None".to_string(), |mon| monitor_desc(mon))
+        );
+        preferred.cloned()
+    }
+
+    fn is_rule_match(rule: &MonitorRule, mon: &gdk::Monitor) -> bool {
+        let model_gstr = mon.model();
+        let model: &str = model_gstr.as_ref().map_or("", |s| s.as_str());
+        if !rule.model.is_match(model) {
+            return false;
+        }
+
+        let mfgr_gstr = mon.manufacturer();
+        let manufacturer: &str = mfgr_gstr.as_ref().map_or("", |s| s.as_str());
+        if !rule.manufacturer.is_match(manufacturer) {
+            return false;
+        }
+
+        let conn_gstr = mon.connector();
+        let connector: &str = conn_gstr.as_ref().map_or("", |s| s.as_str());
+        if !rule.connector.is_match(connector) {
+            return false;
+        }
+
+        true
     }
 
     fn configure_monitors_per_monitor(&mut self) {
-        /*
-            for (mon, mon_info) in &self.monitors {
-                if let Some(_) = mon_info.signal_handler {
-                    // We are still waiting on metadata for this monitor to populate
-                    continue;
-                }
-
-                let config_opt = self.pick_monitor_config(mon, mon_info);
-                mon_info.ensure_bar_config(config_opt);
+        for (mon, mon_state) in self.monitors.iter_mut() {
+            if let MonitorState::Pending(_) = mon_state {
+                // We are still waiting on metadata for this monitor to populate
+                continue;
             }
-        */
+
+            let bar_config = Self::pick_monitor_config(mon, &self.config);
+            Self::ensure_bar_config(mon, mon_state, bar_config, &mut self.all_stats);
+        }
+    }
+
+    fn pick_monitor_config<'a>(mon: &gdk::Monitor, config: &'a Config) -> Option<&'a BarConfig> {
+        let conn_gstr = mon.connector();
+        let mfgr_gstr = mon.manufacturer();
+        let model_gstr = mon.model();
+        let connector: &str = conn_gstr.as_ref().map_or("", |s| s.as_str());
+        let manufacturer: &str = mfgr_gstr.as_ref().map_or("", |s| s.as_str());
+        let model: &str = model_gstr.as_ref().map_or("", |s| s.as_str());
+
+        for rule in &config.monitor_rules {
+            if rule.model.is_match(model)
+                && rule.manufacturer.is_match(manufacturer)
+                && rule.connector.is_match(connector)
+            {
+                if let Some(cfg_name) = &rule.bar {
+                    if cfg_name == NO_BAR_NAME {
+                        eprintln!("monitor {} -> no bar", monitor_desc(mon));
+                        return None;
+                    }
+                    eprintln!("monitor {} -> config {:?}", monitor_desc(mon), cfg_name);
+                    return config.bars.get(cfg_name);
+                } else {
+                    // Default to the primary bar config
+                    // We only use no bar if the name is explicitly "none"
+                    eprintln!(
+                        "monitor {} -> defaulting to primary bar config",
+                        monitor_desc(mon)
+                    );
+                    return Some(config.primary_bar());
+                }
+            }
+        }
+
+        // Default to the primary monitor config if no other config specified
+        Some(config.primary_bar())
     }
 }
 
@@ -445,4 +522,13 @@ fn report_css_parsing_error(
 ) {
     // TODO: report the parsing error in a GUI dialog rather than just in stderr output
     eprintln!("CSS parsing error at {}: {}\n", section.to_str(), error);
+}
+
+fn monitor_desc(mon: &gdk::Monitor) -> String {
+    format!(
+        "{:?} {:?} {:?}",
+        mon.connector(),
+        mon.manufacturer(),
+        mon.model()
+    )
 }
