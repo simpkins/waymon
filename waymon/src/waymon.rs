@@ -10,46 +10,9 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-enum MonitorState {
-    // This is a new monitor, and we are waiting for more information about it before we can
-    // decide what sort of bar should be displayed on this monitor.
-    Pending(PendingMonitor),
-    // No bar is shown on this monitor.
-    NoBar,
-    // The bar being shown on this monitor.
-    Bar(Bar),
-}
-
-struct PendingMonitor {
-    mon: gdk::Monitor,
-    first_seen: Instant,
-    signal_handler: Option<glib::SignalHandlerId>,
-}
-
-impl PendingMonitor {
-    fn new(mon: gdk::Monitor, handler_id: glib::SignalHandlerId) -> Self {
-        Self {
-            mon: mon,
-            first_seen: Instant::now(),
-            signal_handler: Some(handler_id),
-        }
-    }
-
-    fn is_timed_out(&self, now: &Instant) -> bool {
-        const MONITOR_METADATA_TIMEOUT: Duration = Duration::from_secs(5);
-        *now > self.first_seen + MONITOR_METADATA_TIMEOUT
-    }
-}
-
-impl Drop for PendingMonitor {
-    fn drop(&mut self) {
-        // Remove the monitor metadata callback once we have stopped waiting on this monitor
-        if let Some(sh) = std::mem::take(&mut self.signal_handler) {
-            self.mon.disconnect(sh);
-        }
-    }
-}
-
+/**
+ * A singleton containing global state for the application
+ */
 pub struct Waymon {
     pub display: gdk::Display,
     config_dir: PathBuf,
@@ -59,6 +22,9 @@ pub struct Waymon {
     pub all_stats: crate::stats::AllStats,
 }
 
+/**
+ * A helper class that just wraps an Rc<RefCell<Waymon>>
+ */
 pub struct WaymonState {
     cell: Rc<RefCell<Waymon>>,
 }
@@ -174,6 +140,7 @@ impl Waymon {
         // TODO: check if config file or css file has been updated,
         // and reload if needed
 
+        // Update the bars on all monitors
         let mut monitors_changed = false;
         for (mon, mon_state) in self.monitors.iter_mut() {
             match mon_state {
@@ -356,6 +323,9 @@ impl Waymon {
         self.configure_monitor_bars();
     }
 
+    /**
+     * Make sure each monitor is showing a bar with the correct configuration
+     */
     fn configure_monitor_bars(&mut self) {
         match self.config.mode {
             crate::config::Mode::Mirror => self.configure_monitors_mirrored(),
@@ -432,6 +402,46 @@ impl Waymon {
                 mon_info.ensure_bar_config(config_opt);
             }
         */
+    }
+}
+
+enum MonitorState {
+    // This is a new monitor, and we are waiting for more information about it before we can
+    // decide what sort of bar should be displayed on this monitor.
+    Pending(PendingMonitor),
+    // No bar is shown on this monitor.
+    NoBar,
+    // The bar being shown on this monitor.
+    Bar(Bar),
+}
+
+struct PendingMonitor {
+    mon: gdk::Monitor,
+    first_seen: Instant,
+    signal_handler: Option<glib::SignalHandlerId>,
+}
+
+impl PendingMonitor {
+    fn new(mon: gdk::Monitor, handler_id: glib::SignalHandlerId) -> Self {
+        Self {
+            mon: mon,
+            first_seen: Instant::now(),
+            signal_handler: Some(handler_id),
+        }
+    }
+
+    fn is_timed_out(&self, now: &Instant) -> bool {
+        const MONITOR_METADATA_TIMEOUT: Duration = Duration::from_secs(5);
+        *now > self.first_seen + MONITOR_METADATA_TIMEOUT
+    }
+}
+
+impl Drop for PendingMonitor {
+    fn drop(&mut self) {
+        // Remove the monitor metadata callback once we have stopped waiting on this monitor
+        if let Some(sh) = std::mem::take(&mut self.signal_handler) {
+            self.mon.disconnect(sh);
+        }
     }
 }
 
