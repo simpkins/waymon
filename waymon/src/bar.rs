@@ -33,16 +33,19 @@ pub struct Bar {
 
 impl Bar {
     pub fn new(monitor: gdk::Monitor, config: &BarConfig, all_stats: &mut AllStats) -> Self {
-        let display = monitor.display();
-        let window = Window::builder().display(&display).title("waymon").build();
-
+        let (window, box_widget) = Self::create_window(&monitor, config);
         let mut bar = Self {
-            window: window,
-            monitor: monitor,
-            box_widget: gtk::Box::new(Orientation::Vertical, /*spacing*/ 0),
+            window,
+            monitor,
+            box_widget,
             widgets: Vec::new(),
         };
-        bar.create_window(config, all_stats);
+
+        // Add the widgets
+        bar.add_widgets(config, config.width, all_stats);
+        // Display the window
+        bar.window.present();
+
         bar
     }
 
@@ -51,48 +54,61 @@ impl Bar {
         eprintln!("TODO: update bar config");
     }
 
-    fn create_window(&mut self, config: &BarConfig, all_stats: &mut AllStats) {
-        // Configure the window as a layer surface
-        self.window.init_layer_shell();
-        // Set the monitor it will display on
-        self.window.set_monitor(&self.monitor);
-        // Display below normal windows
-        self.window.set_layer(Layer::Top);
-        // Push other windows out of the way
-        self.window.auto_exclusive_zone_enable();
+    fn create_window(monitor: &gdk::Monitor, config: &BarConfig) -> (Window, gtk::Box) {
+        let display = monitor.display();
+        let window = Window::builder().display(&display).title("waymon").build();
 
-        match config.side {
+        // Configure the window as a layer surface
+        window.init_layer_shell();
+        // Set the monitor it will display on
+        window.set_monitor(&monitor);
+        // Display below normal windows
+        window.set_layer(Layer::Top);
+        // Push other windows out of the way
+        window.auto_exclusive_zone_enable();
+
+        let box_orientation = match config.side {
             crate::config::Side::Left => {
-                self.window.set_anchor(Edge::Left, true);
-                self.window.set_anchor(Edge::Top, true);
-                self.window.set_anchor(Edge::Bottom, true);
+                window.set_anchor(Edge::Left, true);
+                window.set_anchor(Edge::Top, true);
+                window.set_anchor(Edge::Bottom, true);
+                Orientation::Vertical
             }
             crate::config::Side::Right => {
-                self.window.set_anchor(Edge::Right, true);
-                self.window.set_anchor(Edge::Top, true);
-                self.window.set_anchor(Edge::Bottom, true);
+                window.set_anchor(Edge::Right, true);
+                window.set_anchor(Edge::Top, true);
+                window.set_anchor(Edge::Bottom, true);
+                Orientation::Vertical
             }
             crate::config::Side::Top => {
-                self.window.set_anchor(Edge::Top, true);
-                self.window.set_anchor(Edge::Left, true);
-                self.window.set_anchor(Edge::Right, true);
+                window.set_anchor(Edge::Top, true);
+                window.set_anchor(Edge::Left, true);
+                window.set_anchor(Edge::Right, true);
+                Orientation::Horizontal
             }
             crate::config::Side::Bottom => {
-                self.window.set_anchor(Edge::Bottom, true);
-                self.window.set_anchor(Edge::Left, true);
-                self.window.set_anchor(Edge::Right, true);
+                window.set_anchor(Edge::Bottom, true);
+                window.set_anchor(Edge::Left, true);
+                window.set_anchor(Edge::Right, true);
+                Orientation::Horizontal
             }
         };
+        let box_widget = gtk::Box::new(box_orientation, /*spacing*/ 0);
 
-        self.window.set_default_size(config.width as i32, -1);
+        if box_orientation == Orientation::Vertical {
+            window.set_default_size(config.width as i32, -1);
+        } else {
+            // TODO: we should do something better for setting the window height.
+            // It is confusing to use the "width" setting for this.  We should perhaps iterate
+            // through all the widgets and pick the max height.  Perhaps just setting a small value
+            // here would be fine, and then the widgets should cause the bar to expand?
+            window.set_default_size(-1, config.width as i32);
+        }
 
-        self.box_widget.add_css_class("background");
-        self.window.set_child(Some(&self.box_widget));
+        box_widget.add_css_class("background");
+        window.set_child(Some(&box_widget));
 
-        self.add_widgets(config, config.width, all_stats);
-
-        // Present window
-        self.window.present();
+        (window, box_widget)
     }
 
     fn add_widgets(&mut self, config: &BarConfig, width: u32, all_stats: &mut AllStats) {
