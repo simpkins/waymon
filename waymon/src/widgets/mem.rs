@@ -12,6 +12,7 @@ use std::rc::Rc;
 
 pub struct MemWidget {
     stats: Rc<RefCell<StatsDelta<MemoryStats>>>,
+    container: gtk::Box,
     da: gtk::DrawingArea,
     chart: StackedTimeseriesChart<u64, 2>,
     mem_available_kb: u64,
@@ -20,13 +21,13 @@ pub struct MemWidget {
 
 impl MemWidget {
     pub fn new(
-        container: &gtk::Box,
         config: &MemWidgetConfig,
         all_stats: &mut AllStats,
         history_length: usize,
     ) -> Rc<RefCell<MemWidget>> {
         let widget_rc = Rc::new(RefCell::new(MemWidget {
             stats: all_stats.get_mem_stats(),
+            container: gtk::Box::new(gtk::Orientation::Vertical, /*spacing*/ 0),
             da: gtk::DrawingArea::new(),
             chart: StackedTimeseriesChart::new(history_length),
             mem_available_kb: 0,
@@ -34,9 +35,9 @@ impl MemWidget {
         }));
         {
             let widget = widget_rc.borrow();
-            Waymon::add_widget_label(container, &config.label);
+            Waymon::add_widget_label(&widget.container, &config.label);
             Chart::configure(&widget.da, config.height, widget_rc.clone());
-            container.append(&widget.da);
+            widget.container.append(&widget.da);
         }
         widget_rc
     }
@@ -83,5 +84,9 @@ impl Widget for MemWidget {
 
         // Mark that the drawing area needs to be redrawn
         self.da.queue_draw();
+    }
+
+    fn gtk_widget<'a>(&'a self) -> &'a gtk::Box {
+        &self.container
     }
 }

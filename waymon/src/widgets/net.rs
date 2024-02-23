@@ -17,6 +17,7 @@ use tracing::warn;
 pub struct NetWidget {
     dev: String,
     stats: Rc<RefCell<StatsDelta<NetDevStats>>>,
+    container: gtk::Box,
     da: gtk::DrawingArea,
     chart: StackedTimeseriesChart<f64, 2>,
     dev_present: bool,
@@ -26,7 +27,6 @@ pub struct NetWidget {
 
 impl NetWidget {
     pub fn new(
-        container: &gtk::Box,
         config: &NetWidgetConfig,
         all_stats: &mut AllStats,
         history_length: usize,
@@ -34,6 +34,7 @@ impl NetWidget {
         let widget_rc = Rc::new(RefCell::new(NetWidget {
             dev: config.dev.clone(),
             stats: all_stats.get_net_stats(),
+            container: gtk::Box::new(gtk::Orientation::Vertical, /*spacing*/ 0),
             da: gtk::DrawingArea::new(),
             chart: StackedTimeseriesChart::new(history_length),
             dev_present: true,
@@ -42,9 +43,9 @@ impl NetWidget {
         }));
         {
             let widget = widget_rc.borrow();
-            Waymon::add_widget_label(container, &config.label);
+            Waymon::add_widget_label(&widget.container, &config.label);
             Chart::configure(&widget.da, config.height, widget_rc.clone());
-            container.append(&widget.da);
+            widget.container.append(&widget.da);
         }
         widget_rc
     }
@@ -96,5 +97,9 @@ impl Widget for NetWidget {
 
         // Mark that the drawing area needs to be redrawn
         self.da.queue_draw();
+    }
+
+    fn gtk_widget<'a>(&'a self) -> &'a gtk::Box {
+        &self.container
     }
 }

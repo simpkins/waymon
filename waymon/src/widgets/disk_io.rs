@@ -18,6 +18,7 @@ use tracing::warn;
 pub struct DiskIoWidget {
     disk: String,
     stats: Rc<RefCell<StatsDelta<ProcDiskStats>>>,
+    container: gtk::Box,
     da: gtk::DrawingArea,
     chart: StackedTimeseriesChart<f64, 2>,
     disk_present: bool,
@@ -28,7 +29,6 @@ pub struct DiskIoWidget {
 
 impl DiskIoWidget {
     pub fn new(
-        container: &gtk::Box,
         config: &DiskIoWidgetConfig,
         all_stats: &mut AllStats,
         history_length: usize,
@@ -36,6 +36,7 @@ impl DiskIoWidget {
         let widget_rc = Rc::new(RefCell::new(DiskIoWidget {
             disk: config.disk.clone(),
             stats: all_stats.get_disk_stats(),
+            container: gtk::Box::new(gtk::Orientation::Vertical, /*spacing*/ 0),
             da: gtk::DrawingArea::new(),
             chart: StackedTimeseriesChart::new(history_length),
             // Initialize disk_present to true so that we will log a warning once
@@ -47,9 +48,9 @@ impl DiskIoWidget {
         }));
         {
             let widget = widget_rc.borrow();
-            Waymon::add_widget_label(container, &config.label);
+            Waymon::add_widget_label(&widget.container, &config.label);
             Chart::configure(&widget.da, config.height, widget_rc.clone());
-            container.append(&widget.da);
+            widget.container.append(&widget.da);
         }
         widget_rc
     }
@@ -107,5 +108,9 @@ impl Widget for DiskIoWidget {
 
         // Mark that the drawing area needs to be redrawn
         self.da.queue_draw();
+    }
+
+    fn gtk_widget<'a>(&'a self) -> &'a gtk::Box {
+        &self.container
     }
 }

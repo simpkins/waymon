@@ -11,6 +11,7 @@ use std::rc::Rc;
 
 pub struct CpuWidget {
     stats: Rc<RefCell<StatsDelta<ProcStat>>>,
+    container: gtk::Box,
     da: gtk::DrawingArea,
     chart: StackedTimeseriesChart<f64, 3>,
     usage_ratio: f64,
@@ -18,22 +19,22 @@ pub struct CpuWidget {
 
 impl CpuWidget {
     pub fn new(
-        container: &gtk::Box,
         config: &CpuWidgetConfig,
         all_stats: &mut AllStats,
         history_length: usize,
     ) -> Rc<RefCell<CpuWidget>> {
         let widget_rc = Rc::new(RefCell::new(CpuWidget {
             stats: all_stats.get_proc_stats(),
+            container: gtk::Box::new(gtk::Orientation::Vertical, /*spacing*/ 0),
             da: gtk::DrawingArea::new(),
             chart: StackedTimeseriesChart::new(history_length),
             usage_ratio: 0.0,
         }));
         {
             let widget = widget_rc.borrow();
-            Waymon::add_widget_label(container, &config.label);
+            Waymon::add_widget_label(&widget.container, &config.label);
             Chart::configure(&widget.da, config.height, widget_rc.clone());
-            container.append(&widget.da);
+            widget.container.append(&widget.da);
         }
         widget_rc
     }
@@ -87,5 +88,9 @@ impl Widget for CpuWidget {
 
         // Mark that the drawing area needs to be redrawn
         self.da.queue_draw();
+    }
+
+    fn gtk_widget<'a>(&'a self) -> &'a gtk::Box {
+        &self.container
     }
 }

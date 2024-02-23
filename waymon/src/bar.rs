@@ -120,13 +120,12 @@ impl Bar {
         let container = &self.box_widget;
         for widget_config in &config.widgets {
             let widget: Rc<RefCell<dyn Widget>> = match widget_config {
-                WidgetConfig::Cpu(cpu) => CpuWidget::new(container, cpu, all_stats, history_length),
-                WidgetConfig::DiskIO(disk) => {
-                    DiskIoWidget::new(container, disk, all_stats, history_length)
-                }
-                WidgetConfig::Net(net) => NetWidget::new(container, net, all_stats, history_length),
-                WidgetConfig::Mem(mem) => MemWidget::new(container, mem, all_stats, history_length),
+                WidgetConfig::Cpu(cpu) => CpuWidget::new(cpu, all_stats, history_length),
+                WidgetConfig::DiskIO(disk) => DiskIoWidget::new(disk, all_stats, history_length),
+                WidgetConfig::Net(net) => NetWidget::new(net, all_stats, history_length),
+                WidgetConfig::Mem(mem) => MemWidget::new(mem, all_stats, history_length),
             };
+            container.append(widget.borrow().gtk_widget());
             self.widgets.push(widget);
         }
     }
