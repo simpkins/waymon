@@ -1,6 +1,7 @@
 use crate::read::read_to_string_with_limit;
 use std::path::Path;
 use thiserror::Error;
+use tracing::error;
 
 const PATH: &str = "/proc/meminfo";
 
@@ -59,9 +60,12 @@ impl MemoryStats {
 
     pub fn parse(data: &str) -> Self {
         let mut m: Self = Default::default();
-        for (_index, line) in data.split('\n').enumerate() {
-            if let Err(_e) = m.parse_line(line) {
-                // eprintln!("{}:{} {:?}", PROC_STAT_PATH, _index + 1, _e);
+        for (index, line) in data.split('\n').enumerate() {
+            if let Err(e) = m.parse_line(line) {
+                static PARSE_ERROR_LOG: std::sync::Once = std::sync::Once::new();
+                PARSE_ERROR_LOG.call_once(|| {
+                    error!("{}:{} {:?}", PATH, index + 1, e);
+                });
             }
         }
         m

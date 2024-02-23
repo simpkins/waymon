@@ -11,6 +11,7 @@ use gtk::{Orientation, Window};
 use gtk4_layer_shell::{Edge, Layer, LayerShell};
 use std::cell::RefCell;
 use std::rc::Rc;
+use tracing::{debug, error};
 
 /**
  * A Bar is a single waymon window, containing a set of chart widgets.
@@ -51,7 +52,7 @@ impl Bar {
 
     pub fn ensure_config(&mut self, _config: &BarConfig) {
         // TODO: reconfigure the bar if needed
-        eprintln!("TODO: update bar config");
+        error!("TODO: update bar config");
     }
 
     fn create_window(monitor: &gdk::Monitor, config: &BarConfig) -> (Window, gtk::Box) {
@@ -140,7 +141,7 @@ impl Bar {
 
 impl Drop for Bar {
     fn drop(&mut self) {
-        eprintln!(
+        debug!(
             "bar for monitor {:?} {:?} dropped",
             self.monitor.manufacturer(),
             self.monitor.model()

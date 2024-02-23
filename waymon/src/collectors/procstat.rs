@@ -1,6 +1,7 @@
 use crate::read::read_to_string_with_limit;
 use std::path::Path;
 use thiserror::Error;
+use tracing::error;
 
 const PROC_STAT_PATH: &str = "/proc/stat";
 const MAX_NUM_CPUS: u64 = 1024 * 1024;
@@ -169,12 +170,14 @@ impl ProcStat {
             boot_time: 0,
         };
 
-        for (_index, line) in data.split('\n').enumerate() {
-            if let Err(_e) = ps.parse_line(line) {
-                // We ignore errors parsing individual lines.
-                // TODO: perhaps add a --verbose option to report warnings in the future, but in
-                // general we don't want to spew lots of warnings on every stat update attempt.
-                // eprintln!("{}:{} {:?}", PROC_STAT_PATH, _index + 1, _e);
+        for (index, line) in data.split('\n').enumerate() {
+            if let Err(e) = ps.parse_line(line) {
+                // Log an error the first time we see a parse error, but continue
+                // trying to process the rest of the file and return stats.
+                static PARSE_ERROR_LOG: std::sync::Once = std::sync::Once::new();
+                PARSE_ERROR_LOG.call_once(|| {
+                    error!("{}:{} {:?}", PROC_STAT_PATH, index + 1, e);
+                });
             }
         }
 

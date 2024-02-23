@@ -10,6 +10,7 @@ use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
+use tracing::warn;
 
 // We suppress the non_snake_case warning here so that we can more clearly disambiguate Bps (bytes
 // per second) from bps (bits per second).
@@ -99,7 +100,7 @@ impl Widget for DiskIoWidget {
             self.write_Bps = (write_bytes as f64) / delta_secs;
             self.chart.add_values(&[self.read_Bps, self.write_Bps])
         } else if self.disk_present {
-            eprintln!("disk {} not present", &self.disk);
+            warn!("disk {} not present", &self.disk);
             self.disk_present = false;
             self.chart.add_values(&[0.0, 0.0]);
         }

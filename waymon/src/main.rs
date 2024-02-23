@@ -3,6 +3,7 @@ use clap::{Parser, ValueHint};
 use gtk::glib;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use tracing_subscriber;
 
 mod bar;
 mod collectors;
@@ -27,9 +28,10 @@ fn main() -> anyhow::Result<()> {
     } else if let Some(x) = dirs::config_dir() {
         x.join("waymon")
     } else {
-        eprintln!("unable to determine config directory");
         return Err(anyhow!("unable to determine config directory"));
     };
+
+    tracing_subscriber::fmt::init();
 
     // I'm manually calling gtk::init and driving the glib main loop here, rather than using
     // gtk::Application.  I don't really want the gtk Application's handling of application

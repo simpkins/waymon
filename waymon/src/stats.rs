@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
+use tracing::error;
 
 #[derive(Debug, Error)]
 pub enum StatsError {
@@ -66,7 +67,7 @@ impl<T: StatType> StatsDeltaConstructor for StatsDelta<T> {
         let now = Instant::now();
         let mut s = T::new_zero();
         if let Err(e) = s.update() {
-            eprintln!("error initializing {} stats: {:?}", T::name(), e);
+            error!("error initializing {} stats: {:?}", T::name(), e);
             // Fall through anyway and initialize the structure with 0 values
         }
 
@@ -161,12 +162,12 @@ impl AllStats {
             match stat_cell.try_borrow_mut() {
                 Ok(mut s) => {
                     if let Err(e) = s.update(now) {
-                        eprintln!("error updating {}: {:?}", s.name(), e);
+                        error!("error updating {}: {:?}", s.name(), e);
                     }
                 }
                 Err(_) => {
                     // This should only happen if we have a bug somewhere
-                    eprintln!("error updating stats struct: stats data is currently borrowed");
+                    error!("error updating stats struct: stats data is currently borrowed");
                 }
             }
         }

@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
+use tracing::{debug, error, info, warn};
 
 /**
  * A singleton containing global state for the application
@@ -120,7 +121,7 @@ impl Waymon {
         waymon.process_tick();
         let new_interval = waymon.config.interval;
         if new_interval != old_interval {
-            eprintln!(
+            info!(
                 "update interval from {:?} to {:?}",
                 old_interval, new_interval
             );
@@ -143,14 +144,17 @@ impl Waymon {
 
         // Update the bars on all monitors
         let mut monitors_changed = false;
-        for (_mon, mon_state) in self.monitors.iter_mut() {
+        for (mon, mon_state) in self.monitors.iter_mut() {
             match mon_state {
                 MonitorState::Pending(pm) => {
                     // We are still waiting on metadata for this monitor to populate.
                     // If it has been too long, time out and process the monitor with the metadata
                     // we do have.
                     if pm.is_timed_out(&now) {
-                        eprintln!("timed out waiting for monitor metadata");
+                        warn!(
+                            "timed out waiting for monitor metadata for monitor {}",
+                            monitor_desc(mon)
+                        );
                         *mon_state = MonitorState::NoBar;
                         monitors_changed = true;
                     }
@@ -166,7 +170,7 @@ impl Waymon {
     }
 
     fn process_monitor_change(&mut self, monitors: &gtk::gio::ListModel, rc: &Rc<RefCell<Waymon>>) {
-        eprintln!("Monitor list changed");
+        debug!("Monitor list changed");
         let mut changes_made = self.clean_up_removed_monitors(monitors);
         changes_made |= self.process_new_monitors(monitors, rc);
         if changes_made {
@@ -195,7 +199,7 @@ impl Waymon {
         // Therefore we check is_monitor_in_list(), even though this requires a linear scan.
         let present = Self::is_monitor_in_list(mon, monitors);
         if !present {
-            eprintln!("<- monitor removed: {}", monitor_desc(mon));
+            info!("<- monitor removed: {}", monitor_desc(mon));
             /*
                 if let MonitorState::Pending(_) = mon_state {
                     *mon_state = MonitorState::NoBar;
@@ -240,8 +244,7 @@ impl Waymon {
             };
 
             if let Some(_) = self.monitors.get(&mon) {
-                // TODO: perhaps make sure the bar is using up-to-date configuration info?
-                eprintln!("-- existing monitor {}", monitor_desc(&mon));
+                debug!("-- existing monitor {}", monitor_desc(&mon));
                 continue;
             }
 
@@ -282,7 +285,7 @@ impl Waymon {
         // We want to replace that with a NoBar entry.  Just to be safe, check to see what
         // information we have, and don't replace an existing entry if we somehow already have a
         // bar present on this monitor.
-        eprintln!("--> new monitor {}", monitor_desc(mon));
+        info!("--> new monitor {}", monitor_desc(mon));
         if let Some(mon_state) = self.monitors.get_mut(mon) {
             if let MonitorState::Pending(_) = mon_state {
                 self.monitors.insert(mon.clone(), MonitorState::NoBar);
@@ -323,7 +326,7 @@ impl Waymon {
             MonitorState::Pending(_) => {
                 // We generally shouldn't be trying to configure a bar on a monitor that is still
                 // waiting on metadata to populate
-                eprintln!("attempted to configure bar on pending monitor");
+                error!("attempted to configure bar on pending monitor");
             }
             MonitorState::Bar(bar) => {
                 if let Some(bar_config) = config {
@@ -335,7 +338,7 @@ impl Waymon {
             }
             MonitorState::NoBar => {
                 if let Some(bar_config) = config {
-                    eprintln!("add bar for monitor {}", monitor_desc(mon));
+                    debug!("add bar for monitor {}", monitor_desc(mon));
                     let bar = Bar::new(mon.clone(), bar_config, all_stats);
                     *mon_state = MonitorState::Bar(bar);
                 }
@@ -370,7 +373,7 @@ impl Waymon {
                             // This monitor should be excluded from consideration
                             excluded_monitors.insert(mon.clone());
                         } else {
-                            eprintln!("preferred primary monitor: {}", monitor_desc(mon));
+                            debug!("preferred primary monitor: {}", monitor_desc(mon));
                             return Some(mon.clone());
                         }
                     }
@@ -388,7 +391,7 @@ impl Waymon {
                 continue;
             }
             if let MonitorState::Bar(_) = mon_state {
-                eprintln!(
+                debug!(
                     "no matching preferred primary monitor, keeping current on: {}",
                     monitor_desc(mon)
                 );
@@ -397,7 +400,7 @@ impl Waymon {
                 preferred = Some(mon);
             }
         }
-        eprintln!(
+        debug!(
             "no matching preferred primary monitor, using: {}",
             preferred.map_or_else(|| "None".to_string(), |mon| monitor_desc(mon))
         );
@@ -453,15 +456,15 @@ impl Waymon {
             {
                 if let Some(cfg_name) = &rule.bar {
                     if cfg_name == NO_BAR_NAME {
-                        eprintln!("monitor {} -> no bar", monitor_desc(mon));
+                        debug!("monitor {} -> no bar", monitor_desc(mon));
                         return None;
                     }
-                    eprintln!("monitor {} -> config {:?}", monitor_desc(mon), cfg_name);
+                    debug!("monitor {} -> config {:?}", monitor_desc(mon), cfg_name);
                     return config.bars.get(cfg_name);
                 } else {
                     // Default to the primary bar config
                     // We only use no bar if the name is explicitly "none"
-                    eprintln!(
+                    debug!(
                         "monitor {} -> defaulting to primary bar config",
                         monitor_desc(mon)
                     );
@@ -520,8 +523,8 @@ fn report_css_parsing_error(
     section: &gtk::CssSection,
     error: &glib::Error,
 ) {
-    // TODO: report the parsing error in a GUI dialog rather than just in stderr output
-    eprintln!("CSS parsing error at {}: {}\n", section.to_str(), error);
+    // TODO: report the parsing error in a GUI dialog rather than just in log output
+    error!("CSS parsing error at {}: {}\n", section.to_str(), error);
 }
 
 fn monitor_desc(mon: &gdk::Monitor) -> String {

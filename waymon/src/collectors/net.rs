@@ -2,6 +2,7 @@ use crate::read::read_to_string_with_limit;
 use std::collections::HashMap;
 use std::path::Path;
 use thiserror::Error;
+use tracing::error;
 
 const PATH: &str = "/proc/net/dev";
 
@@ -87,12 +88,12 @@ impl NetDevStats {
         // The first two lines contain a header
         lines_iter.next();
         lines_iter.next();
-        for (_index, line) in lines_iter.enumerate() {
-            if let Err(_e) = s.parse_line(line) {
-                // We ignore errors parsing individual lines.
-                // TODO: perhaps add a --verbose option to report warnings in the future, but in
-                // general we don't want to spew lots of warnings on every stat update attempt.
-                // eprintln!("{}:{} {:?}", PATH, _index + 3, _e);
+        for (index, line) in lines_iter.enumerate() {
+            if let Err(e) = s.parse_line(line) {
+                static PARSE_ERROR_LOG: std::sync::Once = std::sync::Once::new();
+                PARSE_ERROR_LOG.call_once(|| {
+                    error!("{}:{} {:?}", PATH, index + 3, e);
+                });
             }
         }
 
@@ -148,7 +149,10 @@ mod tests {
         assert_eq!(lo.tx_bytes, 9377566);
         assert_eq!(lo.tx_packets, 83111);
 
-        let wifi = &s.interfaces.get("wlp0s1").ok_or(anyhow!("missing wlp0s1"))?;
+        let wifi = &s
+            .interfaces
+            .get("wlp0s1")
+            .ok_or(anyhow!("missing wlp0s1"))?;
         assert_eq!(wifi.rx_bytes, 5045788342);
         assert_eq!(wifi.rx_packets, 5352370);
         assert_eq!(wifi.rx_errs, 9);
@@ -166,7 +170,10 @@ mod tests {
         assert_eq!(wifi.tx_carrier, 15);
         assert_eq!(wifi.tx_compressed, 16);
 
-        let veth = &s.interfaces.get("veth1000_aBcD").ok_or(anyhow!("missing veth"))?;
+        let veth = &s
+            .interfaces
+            .get("veth1000_aBcD")
+            .ok_or(anyhow!("missing veth"))?;
         assert_eq!(veth.rx_bytes, 219648629692);
         assert_eq!(veth.rx_packets, 6895126);
         assert_eq!(veth.tx_bytes, 330764094);

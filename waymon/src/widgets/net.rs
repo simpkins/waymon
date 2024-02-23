@@ -9,6 +9,7 @@ use gtk::cairo;
 use gtk::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
+use tracing::warn;
 
 // We suppress the non_snake_case warning here so that we can more clearly disambiguate Bps (bytes
 // per second) from bps (bits per second).
@@ -88,7 +89,7 @@ impl Widget for NetWidget {
             self.tx_Bps = (tx_bytes as f64) / delta_secs;
             self.chart.add_values(&[self.rx_Bps, self.tx_Bps])
         } else if self.dev_present {
-            eprintln!("interface {} not present", &self.dev);
+            warn!("interface {} not present", &self.dev);
             self.dev_present = false;
             self.chart.add_values(&[0.0, 0.0]);
         }
