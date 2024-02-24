@@ -13,12 +13,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use tracing::{debug, error};
 
-/**
- * A Bar is a single waymon window, containing a set of chart widgets.
- *
- * Each Bar is associated with a single monitor (aka wayland output).  In general each monitor will
- * have either 0 or 1 Bar.
- */
+/// A Bar is a single waymon window, containing a set of chart widgets.
+///
+/// Each Bar is associated with a single monitor (aka wayland output).  In general each monitor
+/// will have either 0 or 1 Bar.
 pub struct Bar {
     pub window: Window,
     pub monitor: gdk::Monitor,

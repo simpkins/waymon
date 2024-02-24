@@ -12,9 +12,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
-/**
- * A singleton containing global state for the application
- */
+/// A singleton containing global state for the application
 pub struct Waymon {
     pub display: gdk::Display,
     config_dir: PathBuf,
@@ -24,9 +22,7 @@ pub struct Waymon {
     pub all_stats: AllStats,
 }
 
-/**
- * A helper class that just wraps an Rc<RefCell<Waymon>>
- */
+/// A helper class that just wraps an Rc<RefCell<Waymon>>
 pub struct WaymonState {
     cell: Rc<RefCell<Waymon>>,
 }
@@ -296,9 +292,7 @@ impl Waymon {
         self.configure_monitor_bars();
     }
 
-    /**
-     * Make sure each monitor is showing a bar with the correct configuration
-     */
+    /// Make sure each monitor is showing a bar with the correct configuration
     fn configure_monitor_bars(&mut self) {
         match self.config.mode {
             crate::config::Mode::Mirror => self.configure_monitors_mirrored(),

@@ -13,9 +13,7 @@ pub enum ParseError {
     UnexpectedData,
 }
 
-/**
- * Note: all values in the MemoryStats structure are in kilobytes, not bytes
- */
+// Note: all values in the MemoryStats structure are in kilobytes, not bytes
 #[derive(Clone, Debug, Default)]
 pub struct MemoryStats {
     pub mem_total: u64,
