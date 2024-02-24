@@ -1,0 +1,47 @@
+# interval = 1.0
+# width = 100
+# side = "right"
+# multi_monitor_mode = "mirror"
+
+# Don't ever display a bar on Wacom tablets
+[[monitor_rule]]
+manufacturer = "Wacom"
+bar = "none"
+
+# When in "primary" mode, prefer displaying only on my external Dell monitor
+# if it is connected
+[[monitor_rule]]
+model = "Dell AW3420DW"
+bar = "primary"
+
+# Widgets for the primary bar configuration.
+# If you are using the "per_monitor" mode, widgets for specific
+# bars can be configured as [[bar.BAR_NAME.widget]]
+
+[[widget]]
+type = "cpu"
+label = "CPU"
+
+[[widget]]
+type = "mem"
+label = "Memory"
+
+[[widget]]
+type = "disk_io"
+label = "SSD I/O"
+disk = "nvme0n1"
+
+[[widget]]
+type = "disk_io"
+label = "HD I/O"
+disk = "sda"
+
+[[widget]]
+type = "net"
+dev = "wlp0s20f3"
+label = "Wifi"
+
+[[widget]]
+type = "net"
+dev = "lxcbr0"
+label = "VM Net"
