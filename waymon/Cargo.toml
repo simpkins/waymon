@@ -17,3 +17,4 @@ cairo = "0.0.4"
 regex = "1.10.3"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
+waymon-widget-derive = { path = "../widget_derive" }

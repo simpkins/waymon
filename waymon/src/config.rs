@@ -1,9 +1,14 @@
+use crate::widgets::cpu::CpuWidget;
+use crate::widgets::disk_io::DiskIoWidget;
+use crate::widgets::mem::MemWidget;
+use crate::widgets::net::NetWidget;
 use anyhow::{anyhow, Context, Result};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
+use waymon_widget_derive::WaymonWidgetConfig;
 
 const DEFAULT_WIDTH: u32 = 100;
 const DEFAULT_SIDE: Side = Side::Right;
@@ -240,7 +245,15 @@ impl TomlBarConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+pub trait WaymonWidgetConfig {
+    fn create_widget(
+        &self,
+        all_stats: &mut crate::stats::AllStats,
+        history_length: usize,
+    ) -> std::rc::Rc<std::cell::RefCell<dyn crate::widgets::Widget>>;
+}
+
+#[derive(Debug, Deserialize, WaymonWidgetConfig)]
 #[serde(tag = "type")]
 pub enum WidgetConfig {
     #[serde(rename = "cpu")]
@@ -257,7 +270,7 @@ fn default_chart_height() -> u32 {
     100
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, WaymonWidgetConfig)]
 pub struct CpuWidgetConfig {
     pub label: String,
 
@@ -265,7 +278,7 @@ pub struct CpuWidgetConfig {
     pub height: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, WaymonWidgetConfig)]
 pub struct DiskIoWidgetConfig {
     pub label: String,
     pub disk: String,
@@ -274,7 +287,7 @@ pub struct DiskIoWidgetConfig {
     pub height: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, WaymonWidgetConfig)]
 pub struct NetWidgetConfig {
     pub label: String,
     pub dev: String,
@@ -283,7 +296,7 @@ pub struct NetWidgetConfig {
     pub height: u32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, WaymonWidgetConfig)]
 pub struct MemWidgetConfig {
     pub label: String,
 

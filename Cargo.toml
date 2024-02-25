@@ -1,6 +1,7 @@
 [workspace]
 members = [
-    "waymon"
+    "waymon",
+    "widget_derive",
 ]
 resolver = "2"
 

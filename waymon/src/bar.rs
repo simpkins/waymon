@@ -1,9 +1,5 @@
-use crate::config::{BarConfig, WidgetConfig};
+use crate::config::{BarConfig, WaymonWidgetConfig};
 use crate::stats::AllStats;
-use crate::widgets::cpu::CpuWidget;
-use crate::widgets::disk_io::DiskIoWidget;
-use crate::widgets::mem::MemWidget;
-use crate::widgets::net::NetWidget;
 use crate::widgets::Widget;
 use gtk::gdk;
 use gtk::prelude::*;
@@ -117,12 +113,7 @@ impl Bar {
 
         let container = &self.box_widget;
         for widget_config in &config.widgets {
-            let widget: Rc<RefCell<dyn Widget>> = match widget_config {
-                WidgetConfig::Cpu(cpu) => CpuWidget::new(cpu, all_stats, history_length),
-                WidgetConfig::DiskIO(disk) => DiskIoWidget::new(disk, all_stats, history_length),
-                WidgetConfig::Net(net) => NetWidget::new(net, all_stats, history_length),
-                WidgetConfig::Mem(mem) => MemWidget::new(mem, all_stats, history_length),
-            };
+            let widget = widget_config.create_widget(all_stats, history_length);
             container.append(widget.borrow().gtk_widget());
             self.widgets.push(widget);
         }
