@@ -148,6 +148,9 @@ impl AllStats {
         Self::update_stat(&mut self.disk_stats, now);
         Self::update_stat(&mut self.net_stats, now);
         Self::update_stat(&mut self.mem_stats, now);
+        Self::update_stat(&mut self.cpu_pressure, now);
+        Self::update_stat(&mut self.io_pressure, now);
+        Self::update_stat(&mut self.mem_pressure, now);
     }
 
     fn get_stat<T: StatType>(

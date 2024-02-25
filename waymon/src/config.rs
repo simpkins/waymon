@@ -1,7 +1,10 @@
 use crate::widgets::cpu::CpuWidget;
-use crate::widgets::disk_io::DiskIoWidget;
+use crate::widgets::disk_io::DiskIoWidgetConfig;
 use crate::widgets::mem::MemWidget;
 use crate::widgets::net::NetWidget;
+use crate::widgets::pressure::{
+    CpuPressureWidgetConfig, IoPressureWidgetConfig, MemPressureWidgetConfig,
+};
 use anyhow::{anyhow, Context, Result};
 use regex::Regex;
 use serde::{Deserialize, Deserializer};
@@ -264,24 +267,21 @@ pub enum WidgetConfig {
     Net(NetWidgetConfig),
     #[serde(rename = "mem")]
     Mem(MemWidgetConfig),
+    #[serde(rename = "cpu_pressure")]
+    CpuPressure(CpuPressureWidgetConfig),
+    #[serde(rename = "io_pressure")]
+    IoPressure(IoPressureWidgetConfig),
+    #[serde(rename = "mem_pressure")]
+    MemPressure(MemPressureWidgetConfig),
 }
 
-fn default_chart_height() -> u32 {
+pub fn default_chart_height() -> u32 {
     100
 }
 
 #[derive(Debug, Deserialize, WaymonWidgetConfig)]
 pub struct CpuWidgetConfig {
     pub label: String,
-
-    #[serde(default = "default_chart_height")]
-    pub height: u32,
-}
-
-#[derive(Debug, Deserialize, WaymonWidgetConfig)]
-pub struct DiskIoWidgetConfig {
-    pub label: String,
-    pub disk: String,
 
     #[serde(default = "default_chart_height")]
     pub height: u32,

@@ -1,10 +1,15 @@
 use crate::read::read_to_string_with_limit;
-use crate::stats::StatsError;
+use crate::stats::{StatType, StatsError};
 use std::path::Path;
 
 const CPU_PATH: &str = "/proc/pressure/cpu";
 const IO_PATH: &str = "/proc/pressure/io";
 const MEMORY_PATH: &str = "/proc/pressure/memory";
+
+pub trait PressureStats {
+    fn some_us(&self) -> u64;
+    fn full_us(&self) -> u64;
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct CpuPressure {
@@ -23,7 +28,12 @@ impl CpuPressure {
     }
 }
 
-impl crate::stats::StatType for CpuPressure {
+impl PressureStats for CpuPressure {
+    fn some_us(&self) -> u64 { self.some }
+    fn full_us(&self) -> u64 { self.full }
+}
+
+impl StatType for CpuPressure {
     fn name() -> &'static str {
         CPU_PATH
     }
@@ -55,7 +65,12 @@ impl IoPressure {
     }
 }
 
-impl crate::stats::StatType for IoPressure {
+impl PressureStats for IoPressure {
+    fn some_us(&self) -> u64 { self.some }
+    fn full_us(&self) -> u64 { self.full }
+}
+
+impl StatType for IoPressure {
     fn name() -> &'static str {
         IO_PATH
     }
@@ -87,7 +102,12 @@ impl MemoryPressure {
     }
 }
 
-impl crate::stats::StatType for MemoryPressure {
+impl PressureStats for MemoryPressure {
+    fn some_us(&self) -> u64 { self.some }
+    fn full_us(&self) -> u64 { self.full }
+}
+
+impl StatType for MemoryPressure {
     fn name() -> &'static str {
         MEMORY_PATH
     }

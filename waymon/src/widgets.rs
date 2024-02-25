@@ -3,6 +3,7 @@ pub mod disk_io;
 pub mod mem;
 pub mod net;
 pub mod timeseries;
+pub mod pressure;
 
 use crate::stats::AllStats;
 use std::cell::RefCell;

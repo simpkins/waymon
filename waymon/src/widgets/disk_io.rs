@@ -1,5 +1,5 @@
 use crate::collectors::diskstats::{ProcDiskStats, BYTES_PER_SECTOR};
-use crate::config::DiskIoWidgetConfig;
+use crate::config::default_chart_height;
 use crate::stats::{AllStats, StatsDelta};
 use crate::util::humanify_f64;
 use crate::waymon::Waymon;
@@ -7,6 +7,7 @@ use crate::widgets::timeseries::{Chart, ChartDrawCallback, StackedTimeseriesChar
 use crate::widgets::Widget;
 use gtk::cairo;
 use gtk::prelude::*;
+use serde::Deserialize;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
@@ -27,14 +28,23 @@ pub struct DiskIoWidget {
     write_Bps: f64,
 }
 
-impl DiskIoWidget {
-    pub fn new(
-        config: &DiskIoWidgetConfig,
+#[derive(Debug, Deserialize)]
+pub struct DiskIoWidgetConfig {
+    pub label: String,
+    pub disk: String,
+
+    #[serde(default = "default_chart_height")]
+    pub height: u32,
+}
+
+impl DiskIoWidgetConfig {
+    pub fn create_widget(
+        &self,
         all_stats: &mut AllStats,
         history_length: usize,
     ) -> Rc<RefCell<DiskIoWidget>> {
         let widget_rc = Rc::new(RefCell::new(DiskIoWidget {
-            disk: config.disk.clone(),
+            disk: self.disk.clone(),
             stats: all_stats.get_disk_stats(),
             container: gtk::Box::new(gtk::Orientation::Vertical, /*spacing*/ 0),
             da: gtk::DrawingArea::new(),
@@ -48,8 +58,8 @@ impl DiskIoWidget {
         }));
         {
             let widget = widget_rc.borrow();
-            Waymon::add_widget_label(&widget.container, &config.label);
-            Chart::configure(&widget.da, config.height, widget_rc.clone());
+            Waymon::add_widget_label(&widget.container, &self.label);
+            Chart::configure(&widget.da, self.height, widget_rc.clone());
             widget.container.append(&widget.da);
         }
         widget_rc
