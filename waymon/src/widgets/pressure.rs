@@ -139,10 +139,11 @@ impl<T: PressureStats + StatType> Widget for PressureWidget<T> {
         let full = Duration::from_micros((new.full_us() - old.full_us()) as u64);
         let delta_secs = s.time_delta().as_secs_f64();
 
-        // The "some" count includes the "full" count.  For the graph we want to be able to graph
-        // the time where only the some counter is incrementing separately from the time periods
-        // when both the "some" and full" counters are incrementing.
-        let some_exclusive = some - full;
+        // According to the documentation, it seems like the "some" count should include the "full"
+        // count: some tasks are always blocked whenever all tasks are blocked.  However, the
+        // accounting doesn't appear to be exact: the "full" count is sometimes 1us higher than the
+        // "some" count.  Therefore use saturating_sub() here.
+        let some_exclusive = some.saturating_sub(full);
 
         self.some_fraction = some.as_secs_f64() / delta_secs;
         self.full_fraction = full.as_secs_f64() / delta_secs;
