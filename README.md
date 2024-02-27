@@ -11,3 +11,5 @@ protocol.  This allows it to work nicely in tiling compositors like
 
 This code is pretty half-baked at the moment, but has some basic functionality
 for showing charts of CPU usage, disk and network I/O, and memory usage.
+
+[![screenshot](doc/screenshot.png)](doc/screenshot.png)
